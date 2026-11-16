@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_NAME="FoundryUI.app"
+BUILD_APP_PATH="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
+APPLICATIONS_PATH="/Applications/$APP_NAME"
+
+cd "$ROOT_DIR"
+
+pnpm tauri build
+
+rm -rf "$APPLICATIONS_PATH"
+cp -R "$BUILD_APP_PATH" "$APPLICATIONS_PATH"
+
+echo "Deploy local concluído: $APPLICATIONS_PATH"

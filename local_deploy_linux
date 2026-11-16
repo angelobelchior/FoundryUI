@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APPIMAGE_DIR="$ROOT_DIR/src-tauri/target/release/bundle/appimage"
+INSTALL_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+APPIMAGE_INSTALL_PATH="$INSTALL_DIR/FoundryUI.AppImage"
+BINARY_BUILD_PATH="$ROOT_DIR/src-tauri/target/release/foundryui"
+BINARY_INSTALL_PATH="$INSTALL_DIR/foundryui"
+
+cd "$ROOT_DIR"
+
+pnpm tauri build
+
+BUILD_APPIMAGE_PATH="$(find "$APPIMAGE_DIR" -maxdepth 1 -type f -name '*.AppImage' | head -n 1 || true)"
+
+mkdir -p "$INSTALL_DIR"
+
+if [ -n "${BUILD_APPIMAGE_PATH:-}" ]; then
+  cp "$BUILD_APPIMAGE_PATH" "$APPIMAGE_INSTALL_PATH"
+  chmod +x "$APPIMAGE_INSTALL_PATH"
+  echo "Deploy local concluído: $APPIMAGE_INSTALL_PATH"
+  exit 0
+fi
+
+if [ -f "$BINARY_BUILD_PATH" ]; then
+  cp "$BINARY_BUILD_PATH" "$BINARY_INSTALL_PATH"
+  chmod +x "$BINARY_INSTALL_PATH"
+  echo "Deploy local concluído (fallback): $BINARY_INSTALL_PATH"
+  exit 0
+fi
+
+echo "Falha no deploy local: nenhum artefato Linux encontrado (AppImage ou binário release)" >&2
+exit 1

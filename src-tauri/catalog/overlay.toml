@@ -1,0 +1,366 @@
+[deepseek-r1-14b]
+family = "DeepSeek R1"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[deepseek-r1-7b]
+family = "DeepSeek R1"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[gemma-4-e2b-it]
+family = "Gemma"
+input_modalities = ["text", "image", "audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[gpt-oss-20b]
+family = "GPT-OSS"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[ministral-3-3b-instruct-2512]
+family = "Mistral"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["mistral-7b-v0.2"]
+family = "Mistral"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[mistral-nemo-12b-instruct]
+family = "Mistral"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 128000
+quantization = "GPTQ"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["nemotron-3.5-asr-streaming-0.6b"]
+family = "Nemotron Speech"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["nemotron-speech-streaming-en-0.6b"]
+family = "Nemotron Speech"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["nemotron-speech-streaming-es-0.6b"]
+family = "Nemotron Speech"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[olmo-3-7b-instruct]
+family = "OLMo"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 65536
+quantization = "GPTQ"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["parakeet-tdt-0.6b-v2"]
+family = "Parakeet"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-3-mini-128k]
+family = "Phi-3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-3-mini-4k]
+family = "Phi-3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 4096
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["phi-3.5-mini"]
+family = "Phi-3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-4]
+family = "Phi-4"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 16384
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-4-mini]
+family = "Phi-4"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-4-mini-reasoning]
+family = "Phi-4"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 131072
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[phi-4-reasoning]
+family = "Phi-4"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-0.5b"]
+family = "Qwen2.5"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-1.5b"]
+family = "Qwen2.5"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-14b"]
+family = "Qwen2.5"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-7b"]
+family = "Qwen2.5"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-coder-0.5b"]
+family = "Qwen2.5 Coder"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-coder-1.5b"]
+family = "Qwen2.5 Coder"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-coder-14b"]
+family = "Qwen2.5 Coder"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen2.5-coder-7b"]
+family = "Qwen2.5 Coder"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3-0.6b"]
+family = "Qwen3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3-1.7b"]
+family = "Qwen3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-14b]
+family = "Qwen3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "GPTQ"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-4b]
+family = "Qwen3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-8b]
+family = "Qwen3"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 32768
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3-embedding-0.6b"]
+family = "Qwen3 Embedding"
+input_modalities = ["text"]
+output_modalities = ["embedding"]
+context_length = 32768
+embedding_dimensions = 1024
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-embedding-8b]
+family = "Qwen3 Embedding"
+input_modalities = ["text"]
+output_modalities = ["embedding"]
+context_length = 32768
+embedding_dimensions = 4096
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-vl-2b-instruct]
+family = "Qwen3 VL"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-vl-4b-instruct]
+family = "Qwen3 VL"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[qwen3-vl-8b-instruct]
+family = "Qwen3 VL"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3.5-0.8b"]
+family = "Qwen3.5"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3.5-2b"]
+family = "Qwen3.5"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3.5-2b-text"]
+family = "Qwen3.5"
+input_modalities = ["text"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3.5-4b"]
+family = "Qwen3.5"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+["qwen3.5-9b"]
+family = "Qwen3.5"
+input_modalities = ["text", "image"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[smollm3-3b]
+family = "SmolLM"
+input_modalities = ["text"]
+output_modalities = ["text"]
+context_length = 65536
+quantization = "GPTQ"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[whisper-base]
+family = "Whisper"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[whisper-large-v3-turbo]
+family = "Whisper"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[whisper-medium]
+family = "Whisper"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[whisper-small]
+family = "Whisper"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"
+
+[whisper-tiny]
+family = "Whisper"
+input_modalities = ["audio"]
+output_modalities = ["text"]
+quantization = "RTN"
+source = "Foundry Local model metadata and model cards, 2026-11-11"

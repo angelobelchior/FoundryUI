@@ -1,0 +1,23 @@
+pub mod app;
+pub mod attachments;
+pub mod backend;
+pub mod catalog;
+pub mod chat;
+pub mod cli;
+pub mod commands;
+pub mod db;
+pub mod download;
+pub mod embeddings;
+pub mod error;
+pub mod export;
+pub mod harmony;
+pub mod http;
+pub mod jobs;
+pub mod json;
+pub mod model_cache;
+pub mod params;
+pub mod server;
+pub mod speech;
+pub mod vectorize;
+
+pub use app::AppState;

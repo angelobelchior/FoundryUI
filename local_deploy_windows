@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_NAME="FoundryUI.exe"
+BUILD_APP_PATH="$ROOT_DIR/src-tauri/target/release/foundryui.exe"
+LOCALAPPDATA_DIR="${LOCALAPPDATA:-${USERPROFILE:-$HOME/AppData/Local}}"
+APPLICATIONS_DIR="$LOCALAPPDATA_DIR/Programs/FoundryUI"
+APPLICATIONS_PATH="$APPLICATIONS_DIR/$APP_NAME"
+
+cd "$ROOT_DIR"
+
+pnpm tauri build
+
+if [ ! -f "$BUILD_APP_PATH" ]; then
+  echo "Falha no deploy local: binário não encontrado em $BUILD_APP_PATH" >&2
+  exit 1
+fi
+
+mkdir -p "$APPLICATIONS_DIR"
+rm -f "$APPLICATIONS_PATH"
+cp "$BUILD_APP_PATH" "$APPLICATIONS_PATH"
+
+echo "Deploy local concluído: $APPLICATIONS_PATH"
