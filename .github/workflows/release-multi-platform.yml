@@ -70,10 +70,23 @@ jobs:
       - name: Build Tauri bundle
         run: pnpm tauri build --target ${{ matrix.target }}
 
+      - name: Package bundle (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release-package
+          tar -C src-tauri/target/${{ matrix.target }}/release/bundle -czf release-package/FoundryUI-${{ matrix.artifact }}.tar.gz .
+
+      - name: Package bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-package | Out-Null
+          Compress-Archive -Path "src-tauri/target/${{ matrix.target }}/release/bundle/*" -DestinationPath "release-package/FoundryUI-${{ matrix.artifact }}.zip" -Force
+
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.artifact }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/**
+          path: release-package/*
           if-no-files-found: error
 
   release:
@@ -93,5 +106,5 @@ jobs:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           name: FoundryUI ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
-          files: release-assets/**/*
+          files: release-assets/*
           fail_on_unmatched_files: true
