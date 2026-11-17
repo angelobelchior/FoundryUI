@@ -54,14 +54,13 @@ import {
   type StagedImage,
 } from "../lib/attachments";
 import {
-  catalogList,
   catalogModel,
   FoundryCommandError,
   loadModel,
-  loadedModels,
   startServer,
   toFoundryCommandError,
   unloadModel,
+  workspaceSnapshot,
   type CatalogModel,
   type Declared,
   type LoadedModel,
@@ -305,19 +304,15 @@ export function ChatWorkspace({
   }, [jumpNonce, messages, selectedId, hasMore, loadingOlder, loadingThread]);
 
   const refreshModels = useCallback(async () => {
-    const [loadedResult, catalogResult] = await Promise.allSettled([loadedModels(), catalogList()]);
+    try {
+      const snapshot = await workspaceSnapshot();
 
-    if (loadedResult.status === "fulfilled") {
-      setLoaded(loadedResult.value.models);
+      setLoaded(snapshot.loaded.models);
       setLoadedError(null);
-    } else {
+      setCatalog(snapshot.catalog);
+    } catch (error) {
       setLoaded([]);
-      setLoadedError(toFoundryCommandError(loadedResult.reason));
-    }
-
-    if (catalogResult.status === "fulfilled") {
-      setCatalog(catalogResult.value);
-    } else {
+      setLoadedError(toFoundryCommandError(error));
       setCatalog([]);
     }
   }, []);

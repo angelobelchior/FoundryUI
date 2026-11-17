@@ -270,6 +270,14 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
       };
     }
 
+    function workspaceSnapshot() {
+      return {
+        server: deepClone(state.server),
+        loaded: deepClone(loadedSummary()),
+        catalog: deepClone(state.models),
+      };
+    }
+
     function findConversation(id: number) {
       return state.conversations.find((conversation) => conversation.id === id) ?? null;
     }
@@ -356,6 +364,42 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
             ...(payload.preferences as typeof state.serverPreferences),
           };
           return deepClone(state.serverPreferences);
+        }
+
+        if (command === "workspace_snapshot") {
+          return workspaceSnapshot();
+        }
+
+        if (command === "diagnostics_snapshot") {
+          return {
+            cli: {
+              path: "/opt/homebrew/bin/foundry",
+              version: "0.2.0",
+              minimumVersion: "0.1.0",
+            },
+            server: deepClone(state.server),
+            cache: {
+              location: "/tmp/foundry/cache",
+              userSet: false,
+              models: deepClone(state.models.filter((model) => model.cached)),
+              totalBytes: state.models
+                .filter((model) => model.cached)
+                .reduce((total, model) => total + ((model.fileSizeMb ?? 0) * 1024 * 1024), 0),
+            },
+            logs: "[mock] foundry log line",
+            config: {
+              settings: [
+                { key: "port", value: null, userSet: false },
+                { key: "idle-timeout-minutes", value: "disabled", userSet: false },
+                { key: "log-level", value: "info", userSet: false },
+              ],
+            },
+            status: {
+              running: state.server.running,
+              endpoint: state.server.endpoint,
+            },
+            loaded: deepClone(loadedSummary()),
+          };
         }
 
         if (command === "catalog_list") {

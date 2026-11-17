@@ -19,7 +19,6 @@ import { IconButton } from "../components/IconButton";
 import { useToast } from "../components/Toast";
 import {
   cancelModelDownload,
-  catalogList,
   catalogModel,
   downloadModel,
   FoundryCommandError,
@@ -28,6 +27,7 @@ import {
   removeModel,
   toFoundryCommandError,
   unloadModel,
+  workspaceSnapshot,
   type CatalogModel,
   type JobStatus,
   type LoadedSummary,
@@ -80,29 +80,6 @@ export function ModelsWorkspace() {
   const jobStatusRef = useRef<Record<string, JobStatus>>({});
   const lastActionRef = useRef<Record<string, ActionKind>>({});
 
-  const loadCatalog = useCallback(async () => {
-    setLoading(true);
-    setListError(null);
-
-    try {
-      const next = await catalogList();
-
-      setModels(next);
-      setSelectedAlias((current) => {
-        if (current && next.some((model) => model.alias === current)) {
-          return current;
-        }
-
-        return sortModels(next, i18n.language)[0]?.alias ?? null;
-      });
-    } catch (error) {
-      setListError(toFoundryCommandError(error));
-      setModels(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [i18n.language]);
-
   const applyLoadedSummary = useCallback((summary: LoadedSummary) => {
     setLoadedSummary(summary);
     setLoadedError(null);
@@ -116,6 +93,31 @@ export function ModelsWorkspace() {
       })) ?? current,
     );
   }, []);
+
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
+    setListError(null);
+
+    try {
+      const snapshot = await workspaceSnapshot();
+      const next = snapshot.catalog;
+
+      setModels(next);
+      applyLoadedSummary(snapshot.loaded);
+      setSelectedAlias((current) => {
+        if (current && next.some((model) => model.alias === current)) {
+          return current;
+        }
+
+        return sortModels(next, i18n.language)[0]?.alias ?? null;
+      });
+    } catch (error) {
+      setListError(toFoundryCommandError(error));
+      setModels(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [applyLoadedSummary, i18n.language]);
 
   const refreshLoaded = useCallback(async () => {
     setLoadedLoading(true);
@@ -133,10 +135,6 @@ export function ModelsWorkspace() {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
-
-  useEffect(() => {
-    void refreshLoaded();
-  }, [refreshLoaded]);
 
   useModelJobStream((job, hydrated) => {
     setJobs((current) => {

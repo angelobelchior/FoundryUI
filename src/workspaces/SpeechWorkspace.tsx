@@ -33,11 +33,10 @@ import { useToast } from "../components/Toast";
 import { copyText } from "../lib/copy";
 import { listConversations, type Conversation } from "../lib/chat";
 import {
-  catalogList,
   downloadModel,
   loadModel,
-  loadedModels,
   toFoundryCommandError,
+  workspaceSnapshot,
   type CatalogModel,
   type FoundryCommandError,
   type JobStatus,
@@ -319,14 +318,11 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
     });
   }, []);
 
-  const refreshCatalog = useCallback(async () => {
-    setModels(await catalogList());
-  }, []);
+  const refreshModelState = useCallback(async () => {
+    const snapshot = await workspaceSnapshot();
 
-  const refreshLoaded = useCallback(async () => {
-    const summary = await loadedModels();
-
-    setLoaded(summary.models);
+    setModels(snapshot.catalog);
+    setLoaded(snapshot.loaded.models);
   }, []);
 
   const refreshPermission = useCallback(async () => {
@@ -358,8 +354,7 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
     Promise.all([
       refreshTranscriptions(),
-      refreshCatalog(),
-      refreshLoaded(),
+      refreshModelState(),
       refreshPermission(),
       refreshDevices(),
     ]).catch((error) => {
@@ -371,7 +366,7 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
     return () => {
       live = false;
     };
-  }, [refreshCatalog, refreshDevices, refreshLoaded, refreshPermission, refreshTranscriptions]);
+  }, [refreshDevices, refreshModelState, refreshPermission, refreshTranscriptions]);
 
   useEffect(() => {
     if (step > 1 && !canGoStep2) {
@@ -671,7 +666,7 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
     if (job.status === "succeeded") {
       push(t("speech.model.downloadDone", { model: job.alias }), "neutral");
-      void refreshCatalog();
+      void refreshModelState();
 
       return;
     }
@@ -895,7 +890,7 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
       if (result.autoLoaded) {
         push(t("speech.model.autoLoaded", { model: selectedModelAlias }), "neutral");
-        void refreshLoaded();
+        void refreshModelState();
       }
     } catch (error) {
       setBanner(toFoundryCommandError(error));
@@ -1155,7 +1150,7 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
     try {
       await loadModel(alias);
-      await Promise.all([refreshLoaded(), refreshCatalog()]);
+      await refreshModelState();
       setBanner(null);
       push(t("models.actions.loaded", { alias }), "neutral");
     } catch (error) {

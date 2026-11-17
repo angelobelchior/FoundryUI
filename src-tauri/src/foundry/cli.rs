@@ -15,6 +15,9 @@ pub const MINIMUM_CLI_VERSION: &str = "0.13.0";
 
 const STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone)]
 pub struct CliBackend {
     binary: PathBuf,
@@ -120,24 +123,27 @@ impl CliBackend {
             .try_clone()
             .map_err(|error| self.capture_error(args, error.to_string()))?;
 
-        let child = AsyncCommand::new(&self.binary)
+        let mut command = AsyncCommand::new(&self.binary);
+        command
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::from(stdout_target))
             .stderr(Stdio::from(stderr_target))
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    FoundryError::CliMissing
-                } else {
-                    FoundryError::CommandFailed {
-                        command: self.display_command(args),
-                        message: error.to_string(),
-                        hint: None,
-                    }
+            .kill_on_drop(true);
+
+        suppress_window_async(&mut command);
+
+        let child = command.spawn().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                FoundryError::CliMissing
+            } else {
+                FoundryError::CommandFailed {
+                    command: self.display_command(args),
+                    message: error.to_string(),
+                    hint: None,
                 }
-            })?;
+            }
+        })?;
 
         Ok(CliProcess {
             child,
@@ -169,6 +175,8 @@ impl CliBackend {
             .stdout(Stdio::from(stdout_target))
             .stderr(Stdio::from(stderr_target))
             .kill_on_drop(true);
+
+        suppress_window_async(&mut command);
 
         if !envs.is_empty() {
             command.envs(envs.iter().copied());
@@ -225,12 +233,15 @@ impl CliBackend {
     }
 
     pub fn stop_blocking(&self) {
-        let child = Command::new(&self.binary)
+        let mut command = Command::new(&self.binary);
+        command
             .args(["server", "stop"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+            .stderr(Stdio::null());
+        suppress_window(&mut command);
+
+        let child = command.spawn();
 
         let Ok(mut child) = child else {
             return;
@@ -348,11 +359,11 @@ fn last_non_empty(text: &str) -> Option<String> {
 }
 
 fn probe_version(binary: &Path) -> Result<Version, String> {
-    let output = Command::new(binary)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| error.to_string())?;
+    let mut command = Command::new(binary);
+    command.arg("--version").stdin(Stdio::null());
+    suppress_window(&mut command);
+
+    let output = command.output().map_err(|error| error.to_string())?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -424,6 +435,26 @@ fn is_executable(path: &Path) -> bool {
 fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
+
+#[cfg(windows)]
+fn suppress_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_window(_command: &mut Command) {}
+
+#[cfg(windows)]
+fn suppress_window_async(command: &mut AsyncCommand) {
+    use std::os::windows::process::CommandExt;
+
+    command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_window_async(_command: &mut AsyncCommand) {}
 
 #[cfg(test)]
 mod tests {

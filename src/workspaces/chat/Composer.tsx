@@ -13,6 +13,7 @@ import {
   toFoundryCommandError,
   unloadModel,
 } from "../../lib/foundry";
+import { dictationShortcutComboLabel } from "../../lib/shortcuts";
 import {
   cancelRecording,
   discardAudio,
@@ -526,7 +527,7 @@ export function Composer({
                   ? t("chat.dictation.recording", { duration: formatDuration(Date.now() - recordingStartedAt) })
                   : active
                     ? t("chat.stopHint")
-                    : t("chat.dictation.shortcut")}
+                    : t("chat.dictation.shortcut", { combo: dictationShortcutComboLabel() })}
               </span>
             </div>
             {active ? (

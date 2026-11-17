@@ -37,6 +37,28 @@ use super::params::{self, ParamScope, ParamsSnapshot, ResolvedParams};
 use super::server::ServerPreferences;
 use super::speech::{self, AudioInfo, InputDevice, MicrophonePermission};
 
+const SERVER_OBSERVE_CACHE_WINDOW: Duration = Duration::from_millis(1200);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSnapshot {
+    pub server: ServerSnapshot,
+    pub loaded: LoadedSummary,
+    pub catalog: Vec<CatalogModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsSnapshot {
+    pub cli: CliInfo,
+    pub server: ServerSnapshot,
+    pub cache: CacheInfo,
+    pub logs: String,
+    pub config: ConfigShow,
+    pub status: Value,
+    pub loaded: LoadedSummary,
+}
+
 #[tauri::command]
 pub fn cli_detect(state: State<'_, AppState>) -> FoundryResult<CliInfo> {
     let cli = state.refresh_backend()?;
@@ -135,6 +157,51 @@ pub async fn diagnostics_report(state: State<'_, AppState>) -> FoundryResult<Str
     let cli = state.backend()?;
 
     cli.run_text(&["report"]).await
+}
+
+#[tauri::command]
+pub async fn workspace_snapshot(state: State<'_, AppState>) -> FoundryResult<WorkspaceSnapshot> {
+    let overlay = catalog::overlay()?;
+    let cli = state.backend()?;
+    let runtime = runtime_state(state.inner(), &cli).await;
+    let models = cli.list_models().await?;
+    let loaded_aliases = loaded_aliases_from_models(&runtime.loaded_models);
+
+    Ok(WorkspaceSnapshot {
+        server: runtime.snapshot.clone(),
+        loaded: loaded_summary_from_models(
+            state.inner(),
+            runtime.loaded_models,
+            runtime.snapshot.running,
+        ),
+        catalog: catalog::merge_all(models, &loaded_aliases, overlay),
+    })
+}
+
+#[tauri::command]
+pub async fn diagnostics_snapshot(
+    state: State<'_, AppState>,
+) -> FoundryResult<DiagnosticsSnapshot> {
+    let cli = state.backend()?;
+    let runtime = runtime_state(state.inner(), &cli).await;
+    let cache = read_cache_info(&cli).await?;
+    let logs = state.server.logs(&cli, 200).await?;
+    let config = cli.config_show().await?;
+    let status = cli.status().await?;
+
+    Ok(DiagnosticsSnapshot {
+        cli: cli.cli_info(),
+        server: runtime.snapshot.clone(),
+        cache,
+        logs,
+        config,
+        status,
+        loaded: loaded_summary_from_models(
+            state.inner(),
+            runtime.loaded_models,
+            runtime.snapshot.running,
+        ),
+    })
 }
 
 #[tauri::command]
@@ -2196,8 +2263,9 @@ fn require_non_empty(command: &str, field: &str, value: &str) -> FoundryResult<(
 pub async fn catalog_list(state: State<'_, AppState>) -> FoundryResult<Vec<CatalogModel>> {
     let overlay = catalog::overlay()?;
     let cli = state.backend()?;
+    let runtime = runtime_state(state.inner(), &cli).await;
     let models = cli.list_models().await?;
-    let loaded = loaded_aliases(&state, &cli).await;
+    let loaded = loaded_aliases_from_models(&runtime.loaded_models);
 
     Ok(catalog::merge_all(models, &loaded, overlay))
 }
@@ -2209,8 +2277,9 @@ pub async fn catalog_model(
 ) -> FoundryResult<CatalogModel> {
     let overlay = catalog::overlay()?;
     let cli = state.backend()?;
+    let runtime = runtime_state(state.inner(), &cli).await;
     let model = cli.model_info(&alias).await?;
-    let loaded = loaded_aliases(&state, &cli).await;
+    let loaded = loaded_aliases_from_models(&runtime.loaded_models);
 
     Ok(catalog::merge(model, &loaded, overlay))
 }
@@ -2461,7 +2530,20 @@ pub async fn model_unregister(
 }
 
 async fn loaded_summary(state: &AppState, cli: &CliBackend) -> FoundryResult<LoadedSummary> {
-    let (models, server_running) = loaded_state(state, cli).await;
+    let runtime = runtime_state(state, cli).await;
+
+    Ok(loaded_summary_from_models(
+        state,
+        runtime.loaded_models,
+        runtime.snapshot.running,
+    ))
+}
+
+fn loaded_summary_from_models(
+    state: &AppState,
+    models: Vec<ModelSummary>,
+    server_running: bool,
+) -> LoadedSummary {
     let aliases: Vec<String> = models.iter().map(|model| model.alias.clone()).collect();
 
     state.jobs.sync_loaded(&aliases);
@@ -2487,13 +2569,13 @@ async fn loaded_summary(state: &AppState, cli: &CliBackend) -> FoundryResult<Loa
         .sum();
     let (available_memory_bytes, total_memory_bytes) = memory_snapshot();
 
-    Ok(LoadedSummary {
+    LoadedSummary {
         models: loaded,
         total_bytes,
         available_memory_bytes,
         total_memory_bytes,
         server_running,
-    })
+    }
 }
 
 async fn read_cache_info(cli: &CliBackend) -> FoundryResult<CacheInfo> {
@@ -2621,29 +2703,41 @@ fn memory_snapshot() -> (u64, u64) {
     (system.available_memory(), system.total_memory())
 }
 
-async fn loaded_state(state: &AppState, cli: &CliBackend) -> (Vec<ModelSummary>, bool) {
-    let running = state
-        .server
-        .observe(cli)
-        .await
-        .map(|snapshot| snapshot.running)
-        .unwrap_or(false);
-
-    if !running {
-        return (Vec::new(), false);
-    }
-
-    (cli.list_loaded_models().await.unwrap_or_default(), true)
+async fn loaded_aliases(state: &AppState, cli: &CliBackend) -> HashSet<String> {
+    loaded_aliases_from_models(&runtime_state(state, cli).await.loaded_models)
 }
 
-async fn loaded_aliases(state: &AppState, cli: &CliBackend) -> HashSet<String> {
-    loaded_state(state, cli)
-        .await
-        .0
-        .into_iter()
-        .flat_map(|model| [model.alias, model.id])
+fn loaded_aliases_from_models(models: &[ModelSummary]) -> HashSet<String> {
+    models
+        .iter()
+        .flat_map(|model| [model.alias.clone(), model.id.clone()])
         .filter(|value| !value.is_empty())
         .collect()
+}
+
+struct RuntimeState {
+    snapshot: ServerSnapshot,
+    loaded_models: Vec<ModelSummary>,
+}
+
+async fn runtime_state(state: &AppState, cli: &CliBackend) -> RuntimeState {
+    let snapshot = state
+        .server
+        .observe_cached(cli, SERVER_OBSERVE_CACHE_WINDOW)
+        .await
+        .unwrap_or_else(|_| state.server.snapshot());
+
+    if !snapshot.running {
+        return RuntimeState {
+            snapshot,
+            loaded_models: Vec::new(),
+        };
+    }
+
+    RuntimeState {
+        snapshot,
+        loaded_models: cli.list_loaded_models().await.unwrap_or_default(),
+    }
 }
 
 #[cfg(test)]

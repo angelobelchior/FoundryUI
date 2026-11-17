@@ -51,11 +51,10 @@ import {
 } from "../lib/embeddings";
 import { copyText } from "../lib/copy";
 import {
-  catalogList,
   downloadModel,
   loadModel,
-  loadedModels,
   toFoundryCommandError,
+  workspaceSnapshot,
   type CatalogModel,
   type FoundryCommandError,
   type JobStatus,
@@ -254,10 +253,10 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
   }, []);
 
   const refreshModels = useCallback(async () => {
-    const [catalog, loaded] = await Promise.all([catalogList(), loadedModels()]);
+    const snapshot = await workspaceSnapshot();
 
-    setModels(catalog);
-    setLoadedAliases(loaded.models.map((model) => model.alias));
+    setModels(snapshot.catalog);
+    setLoadedAliases(snapshot.loaded.models.map((model) => model.alias));
   }, []);
 
   const goToFlowStep = useCallback(

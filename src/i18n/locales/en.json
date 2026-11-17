@@ -166,7 +166,7 @@
       "stop": "Stop dictation",
       "cancel": "Cancel recording",
       "transcribing": "Transcribing…",
-      "shortcut": "⌘⇧M to dictate",
+      "shortcut": "{{combo}} to dictate",
       "recording": "Recording {{duration}}",
       "undo": "Undo insert",
       "inserted": "Dictation inserted.",

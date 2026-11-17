@@ -7,7 +7,7 @@ import { ContextListTarget } from "./components/ContextList";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmDialog } from "./workspaces/models/ConfirmDialog";
-import { catalogList, cliDetect, serverSetPreferences, startServer, toFoundryCommandError } from "./lib/foundry";
+import { cliDetect, serverSetPreferences, startServer, toFoundryCommandError, workspaceSnapshot } from "./lib/foundry";
 import { detectLanguage } from "./lib/language";
 import {
   accents,
@@ -97,10 +97,10 @@ export default function App() {
       }
 
       try {
-        const models = await catalogList();
+        const snapshot = await workspaceSnapshot();
 
         if (!cancelled) {
-          setOnboardingOpen(!models.some((model) => model.cached));
+          setOnboardingOpen(!snapshot.catalog.some((model) => model.cached));
         }
       } catch {
         return;

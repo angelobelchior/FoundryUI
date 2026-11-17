@@ -45,6 +45,26 @@ test("carrega o shell com mocks estáveis", async ({ page }) => {
     let eventId = 1;
     const callbacks = new Map<number, (...args: unknown[]) => void>();
 
+    function loadedSummary() {
+      return {
+        models: state.models
+          .filter((model) => model.loaded)
+          .map((model) => ({
+            alias: model.alias,
+            id: model.id,
+            displayName: model.displayName,
+            modelType: model.modelType,
+            device: model.device,
+            fileSizeMb: model.fileSizeMb,
+            loadedSince: Date.now() - 5_000,
+          })),
+        totalBytes: 2_147_483_648,
+        availableMemoryBytes: 16_106_127_360,
+        totalMemoryBytes: 17_179_869_184,
+        serverRunning: true,
+      };
+    }
+
     const internals = {
       metadata: {
         currentWindow: { label: "main" },
@@ -75,6 +95,23 @@ test("carrega o shell com mocks estáveis", async ({ page }) => {
           return state.models;
         }
 
+        if (command === "workspace_snapshot") {
+          return {
+            server: {
+              endpoint: "http://127.0.0.1:5273",
+              running: true,
+              state: "ready",
+              pid: 43210,
+              startedByApp: true,
+              logFile: "/tmp/foundry-local.log",
+              port: 5273,
+              uptime: "00:05:00",
+            },
+            loaded: loadedSummary(),
+            catalog: state.models,
+          };
+        }
+
         if (command === "catalog_model") {
           const alias = payload.alias;
           const model = state.models.find((entry) => entry.alias === alias);
@@ -92,23 +129,7 @@ test("carrega o shell com mocks estáveis", async ({ page }) => {
         }
 
         if (command === "loaded_models") {
-          return {
-            models: state.models
-              .filter((model) => model.loaded)
-              .map((model) => ({
-                alias: model.alias,
-                id: model.id,
-                displayName: model.displayName,
-                modelType: model.modelType,
-                device: model.device,
-                fileSizeMb: model.fileSizeMb,
-                loadedSince: Date.now() - 5_000,
-              })),
-            totalBytes: 2_147_483_648,
-            availableMemoryBytes: 16_106_127_360,
-            totalMemoryBytes: 17_179_869_184,
-            serverRunning: true,
-          };
+          return loadedSummary();
         }
 
         if (command === "chat_list_conversations") {

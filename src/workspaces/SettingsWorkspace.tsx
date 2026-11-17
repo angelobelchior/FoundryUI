@@ -15,17 +15,13 @@ import { cx } from "../lib/cx";
 import {
   cacheInfo,
   clearCache,
-  cliDetect,
-  cliStatus,
   configSet,
-  configShow,
   diagnosticsReport,
+  diagnosticsSnapshot,
   loadedModels,
   restartServer,
   serverGetPreferences,
-  serverLogs,
   serverSetPreferences,
-  serverStatus,
   setCacheDirectory,
   startServer,
   stopServer,
@@ -218,24 +214,16 @@ export function SettingsWorkspace({
     setDiagnosticsBusy(true);
 
     try {
-      const [cliInfo, snapshot, cacheInfoValue, nextLogs, nextConfig, statusValue, loadedSummary] = await Promise.all([
-        cliDetect(),
-        serverStatus(),
-        cacheInfo(),
-        serverLogs(200),
-        configShow(),
-        cliStatus(),
-        loadedModels(),
-      ]);
+      const snapshot = await diagnosticsSnapshot();
 
-      setCliInfoText(`${cliInfo.version}\n${cliInfo.path}`);
-      setServerSnapshot(snapshot);
-      setCache(cacheInfoValue);
-      setCachePathDraft(cacheInfoValue.location);
-      setLogs(nextLogs);
-      setStatusJson(JSON.stringify(statusValue, null, 2));
-      setConfigDrafts((current) => ({ ...toConfigDrafts(nextConfig), ...current }));
-      setLoadedModelsList(loadedSummary.models);
+      setCliInfoText(`${snapshot.cli.version}\n${snapshot.cli.path}`);
+      setServerSnapshot(snapshot.server);
+      setCache(snapshot.cache);
+      setCachePathDraft(snapshot.cache.location);
+      setLogs(snapshot.logs);
+      setStatusJson(JSON.stringify(snapshot.status, null, 2));
+      setConfigDrafts((current) => ({ ...toConfigDrafts(snapshot.config), ...current }));
+      setLoadedModelsList(snapshot.loaded.models);
       setBanner(null);
     } catch (error) {
       setBanner(toFoundryCommandError(error));

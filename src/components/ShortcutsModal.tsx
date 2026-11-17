@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { primaryShortcutModifier, shiftShortcutModifier } from "../lib/shortcuts";
 import { Modal } from "./Modal";
 
 type ShortcutsModalProps = {
@@ -8,16 +9,18 @@ type ShortcutsModalProps = {
 
 export function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
   const { t } = useTranslation();
+  const primaryModifier = primaryShortcutModifier();
+  const shiftModifier = shiftShortcutModifier();
 
   const rows = [
-    { keys: ["⌘", "1"], label: t("shortcuts.goTo", { workspace: t("rail.chat") }) },
-    { keys: ["⌘", "2"], label: t("shortcuts.goTo", { workspace: t("rail.models") }) },
-    { keys: ["⌘", "3"], label: t("shortcuts.goTo", { workspace: t("rail.speech") }) },
-    { keys: ["⌘", "4"], label: t("shortcuts.goTo", { workspace: t("rail.embeddings") }) },
-    { keys: ["⌘", "5"], label: t("shortcuts.openSettings") },
-    { keys: ["⌘", "⇧", "M"], label: t("shortcuts.dictation") },
-    { keys: ["⌘", "F"], label: t("shortcuts.search") },
-    { keys: ["⌘", "/"], label: t("shortcuts.showHelp") },
+    { keys: [primaryModifier, "1"], label: t("shortcuts.goTo", { workspace: t("rail.chat") }) },
+    { keys: [primaryModifier, "2"], label: t("shortcuts.goTo", { workspace: t("rail.models") }) },
+    { keys: [primaryModifier, "3"], label: t("shortcuts.goTo", { workspace: t("rail.speech") }) },
+    { keys: [primaryModifier, "4"], label: t("shortcuts.goTo", { workspace: t("rail.embeddings") }) },
+    { keys: [primaryModifier, "5"], label: t("shortcuts.openSettings") },
+    { keys: [primaryModifier, shiftModifier, "M"], label: t("shortcuts.dictation") },
+    { keys: [primaryModifier, "F"], label: t("shortcuts.search") },
+    { keys: [primaryModifier, "/"], label: t("shortcuts.showHelp") },
     { keys: ["Esc"], label: t("shortcuts.closeDialog") },
   ];
 

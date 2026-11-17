@@ -1,5 +1,5 @@
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -67,6 +67,7 @@ struct ServerState {
     endpoint: Option<String>,
     started_by_app: bool,
     status: Option<ServerStatus>,
+    last_observed_at: Option<Instant>,
 }
 
 pub struct ServerManager {
@@ -120,7 +121,45 @@ impl ServerManager {
         *lock(&self.state) = ServerState::default();
     }
 
+    pub async fn observe_cached(
+        &self,
+        cli: &CliBackend,
+        max_age: Duration,
+    ) -> FoundryResult<ServerSnapshot> {
+        let cached_is_fresh = {
+            let state = lock(&self.state);
+
+            state
+                .last_observed_at
+                .is_some_and(|at| at.elapsed() <= max_age)
+        };
+
+        if cached_is_fresh {
+            return Ok(self.snapshot());
+        }
+
+        self.observe(cli).await
+    }
+
     pub async fn observe(&self, cli: &CliBackend) -> FoundryResult<ServerSnapshot> {
+        let cached_endpoint = lock(&self.state).endpoint.clone();
+
+        if let Some(endpoint) = cached_endpoint
+            && health_check(&self.client, &endpoint).await
+        {
+            self.store_session(None, Some(endpoint), Ownership::Keep);
+
+            return Ok(self.snapshot());
+        }
+
+        if let Some(status) = self.daemon_status().await {
+            let endpoint = status.endpoint().map(str::to_string);
+
+            self.store_session(Some(status), endpoint, Ownership::Keep);
+
+            return Ok(self.snapshot());
+        }
+
         let status_result = cli.server_status().await;
 
         if let Ok(status) = &status_result
@@ -133,14 +172,6 @@ impl ServerManager {
                 Some(endpoint.to_string()),
                 Ownership::Keep,
             );
-
-            return Ok(self.snapshot());
-        }
-
-        if let Some(status) = self.daemon_status().await {
-            let endpoint = status.endpoint().map(str::to_string);
-
-            self.store_session(Some(status), endpoint, Ownership::Keep);
 
             return Ok(self.snapshot());
         }
@@ -260,6 +291,7 @@ impl ServerManager {
         }
 
         state.endpoint = endpoint;
+        state.last_observed_at = Some(Instant::now());
 
         if let Some(started) = ownership.started_by_app() {
             state.started_by_app = started;

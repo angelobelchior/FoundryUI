@@ -92,6 +92,22 @@ export type ConfigShow = {
   settings: ConfigSetting[];
 };
 
+export type WorkspaceSnapshot = {
+  server: ServerSnapshot;
+  loaded: LoadedSummary;
+  catalog: CatalogModel[];
+};
+
+export type DiagnosticsSnapshot = {
+  cli: CliInfo;
+  server: ServerSnapshot;
+  cache: CacheInfo;
+  logs: string;
+  config: ConfigShow;
+  status: unknown;
+  loaded: LoadedSummary;
+};
+
 export type JobStatus = "running" | "succeeded" | "failed" | "cancelled";
 
 export type ModelJob = {
@@ -244,8 +260,16 @@ export async function diagnosticsReport(): Promise<string> {
   return invoke("diagnostics_report");
 }
 
+export async function diagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
+  return invoke("diagnostics_snapshot");
+}
+
 export async function catalogModel(alias: string): Promise<CatalogModel> {
   return invoke("catalog_model", { alias });
+}
+
+export async function workspaceSnapshot(): Promise<WorkspaceSnapshot> {
+  return invoke("workspace_snapshot");
 }
 
 export async function downloadModel(alias: string): Promise<ModelJob> {
