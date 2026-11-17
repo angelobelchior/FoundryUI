@@ -111,11 +111,28 @@ Arquivos mais comuns:
 - Windows: `bundle/nsis/*.exe`, `bundle/msi/*.msi`
 - Linux: `bundle/appimage/*.AppImage` (podendo incluir `.deb`/`.rpm` conforme ambiente)
 
-## GitHub Actions (build + release multi-plataforma)
+## GitHub Actions
+
+### CI (main)
+
+Workflow: `.github/workflows/ci-main.yml`
+
+Disparo:
+
+- push em `main`
+- pull request para `main`
+
+Executa validações de build:
+
+- `pnpm typecheck`
+- `pnpm build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
+### Release multi-plataforma
 
 Workflow: `.github/workflows/release-multi-platform.yml`
 
-Ele compila e publica release com assets para:
+Compila e publica release com assets para:
 
 - macOS ARM64 (`macos-15`)
 - Windows x64 (`windows-2025`)
