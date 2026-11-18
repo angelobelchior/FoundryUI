@@ -982,7 +982,7 @@ fn live_root_identity_deduplicates_project_records_across_selected_aliases() {
         )
         .expect("same project");
     assert_eq!(first, same);
-    assert!(!root.strict_io_available());
+    assert!(root.operation_io_available().expect("operation capability"));
 }
 
 #[test]

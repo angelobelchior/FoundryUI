@@ -1,5 +1,7 @@
 # Verificação da Onda 3
 
+Registro histórico da primeira entrega, commit `967e002`. O bloqueio por contenção contínua aqui descrito foi substituído por nova decisão explícita do usuário. A política atual e sua verificação complementar estão em [OPERATION-IO.md](OPERATION-IO.md); os resultados anteriores abaixo não foram reescritos como se já comprovassem o contrato novo.
+
 ## Escopo e proveniência
 
 - Base acordada: `dd28a2f`, somente os módulos e trechos de integração escritos nesta onda.

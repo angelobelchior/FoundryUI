@@ -6,9 +6,9 @@ FUI-007 e FUI-008, com foco macOS. São fundações Rust, sem novas rotas Tauri,
 
 O usuário confirmou TDD nas interfaces públicas de persistência e recursos, revisão contra `dd28a2f` incluindo somente os trechos desta onda, e a seguinte decisão adicional:
 
-**Manter contenção estrita:** se um recurso sair da pasta autorizada, não aceitar autorização persistente apenas por já existir um descritor aberto. Operações sem garantia comprovada continuam bloqueadas; identidade e persistência podem avançar.
+Inicialmente foi escolhida contenção contínua pela localização. Depois, o usuário pediu simplificação com foco em implementação e confirmou explicitamente **“Validar por operação”**: validar raiz/alvo na abertura, negar travessia e symlinks e operar no mesmo objeto até concluir, mesmo que outro aplicativo o mova nesse intervalo. Essa decisão substitui a regra anterior; não é um fallback silencioso.
 
-Essa decisão não foi substituída silenciosamente por semântica de objeto fixado. O módulo de recursos não lê bytes de arquivos de trabalho nem cria arquivos enquanto a garantia estrita estiver indisponível.
+Assinatura, App Sandbox, empacotamento e distribuição ficam para depois. Permissões por conversa, confirmações destrutivas e autorização de rede permanecem inalteradas. A implementação e as provas atuais estão em [OPERATION-IO.md](OPERATION-IO.md).
 
 ## Implementação
 
@@ -17,7 +17,7 @@ Essa decisão não foi substituída silenciosamente por semântica de objeto fix
 | Persistência | `src-tauri/src/foundry/db/agent/` | Projetos, contexto, execuções, chamadas, decisões, claims, diário, snapshots e fatos tipados |
 | Esquema | `src-tauri/agent-schema.sql` | Estruturas relacionais, ownership, índices, estados e validação de payloads |
 | Integração SQLite | `src-tauri/src/foundry/db.rs` | Mesmo banco da aplicação, preparação/recovery e sequência compartilhada com mensagens |
-| Recursos | `src-tauri/src/foundry/resources/` | Identidade nativa de diretórios, relações de ancestralidade, revogação e negação explícita de I/O estrito não comprovado |
+| Recursos | `src-tauri/src/foundry/resources/` | Identidade, ancestralidade, revogação, leitura limitada e criação exclusiva com validação por operação |
 
 ## Persistência: interface pública
 
@@ -62,10 +62,13 @@ O esquema do agente é aplicado no mesmo SQLite usado pela aplicação. Seu cont
 - Substituição da raiz, revogação, falta de acesso e indisponibilidade retornam erros tipados com errno preservado, sem retornar um resultado vazio supostamente autorizado.
 - `relation` compara objetos e ancestralidade de descritores. Seu resultado é um snapshot; não congela o filesystem nem autoriza efeitos posteriores.
 - `RelativePath` rejeita absolutos, `..`, NUL/controles e namespaces ambíguos. Isso não é apresentado como proteção suficiente de I/O por si só.
-- `read` e `create_new` retornam `StrictContainmentUnavailable` após validar a raiz, sem abrir o filho ou produzir efeitos. `strict_io_available()` é falso.
-- Não existe fallback com `realpath` seguido de leitura comum, flags removidas após erro, ou descritor que continue concedendo leitura por objeto fixado.
+- `operation_io_available` exige raiz vigente, volume local e verificação de que a resolução nativa rejeita tentativas de escapar da raiz; não remove flags em caso de erro.
+- `open_read` fixa um arquivo regular validado, sem expor o descritor. A operação de leitura é consumida uma única vez e verifica revogação explícita e limite de bytes.
+- `read` lê o objeto validado em uma operação, sem reabrir seu nome após movimentação ou substituição. Não promete snapshot atômico de conteúdo sob escritas concorrentes.
+- `create_new` valida e fixa o diretório-pai, cria com exclusividade e permissões `0600`, valida o descritor efetivo e não sobrescreve alvos existentes. Uma falha de escrita pode deixar arquivo parcial e é identificada como `WriteIncomplete`; não há remoção automática por um nome que pode ter sido substituído.
+- Symlinks de filhos, absolutos, `..`, recursos especiais e travessia para outro volume de conteúdo são recusados. O módulo não é um sandbox para programas ou comandos arbitrários.
 
-**FUI-008 permanece parcial/bloqueado para leitura/criação positiva com contenção estrita.** Identidade, comparação, erros e a interface fail-closed estão implementados; a validação do pai efetivo e identidade de um arquivo realmente criado não está aprovada, pois criação continua indisponível. Esse impedimento não será eliminado dos critérios do ticket.
+O bloqueio anterior de FUI-008 era relativo à contenção contínua agora substituída. O novo contrato por operação tem provas positivas e negativas no macOS atual; sua conclusão é registrada no complemento de verificação. Isso não habilita ferramentas no chat nem aprova o executor de comandos reprovado na Onda 1.
 
 ## Provas e limites
 
@@ -73,4 +76,4 @@ Os testes novos usam as interfaces acordadas, sem consultar conexão SQL privada
 
 A pesquisa nativa e seus limites estão em [reports/resource-access-research.md](reports/resource-access-research.md). A existência de `O_RESOLVE_BENEATH` no host não comprova contenção por localização durante toda a vida de um descritor.
 
-Os resultados completos e a revisão estão em [VERIFICATION.md](VERIFICATION.md): 167 testes Rust aprovados (28 novos nesta onda; 8 previamente ignorados), 21 testes da Onda 1 e 12 smoke tests aprovados. O patch preparado compila e passa Clippy com `-D warnings` isolado da alteração anterior do usuário. Não foi iniciada a Onda 4 nem habilitada uma ferramenta do agente.
+Os resultados da primeira entrega estão em [VERIFICATION.md](VERIFICATION.md). Os resultados posteriores à decisão de validar por operação ficam em [OPERATION-IO.md](OPERATION-IO.md). Não foi iniciada a Onda 4 nem habilitada uma ferramenta do agente.

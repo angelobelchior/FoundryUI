@@ -17,7 +17,12 @@ pub enum ResourceErrorKind {
     RootChanged,
     Revoked,
     InvalidPath,
-    StrictContainmentUnavailable,
+    OperationContainmentUnavailable,
+    UnsupportedResourceType,
+    LimitExceeded,
+    ResourceChanged,
+    AlreadyExists,
+    WriteIncomplete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize)]
@@ -113,6 +118,33 @@ pub struct RootHandle {
     revoked: AtomicBool,
 }
 
+pub struct OpenedRead<'a> {
+    #[cfg(target_os = "macos")]
+    file: std::fs::File,
+    root: &'a RootHandle,
+}
+
+impl OpenedRead<'_> {
+    pub fn read(self, max_bytes: usize) -> ResourceResult<Vec<u8>> {
+        self.root.check_revoked()?;
+        #[cfg(target_os = "macos")]
+        {
+            let mut file = self.file;
+            let bytes = macos::read_bounded(&mut file, max_bytes)?;
+            self.root.check_revoked()?;
+            Ok(bytes)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = max_bytes;
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
+    }
+}
+
 impl RootHandle {
     pub fn enroll(path: &Path) -> ResourceResult<Self> {
         #[cfg(target_os = "macos")]
@@ -187,24 +219,76 @@ impl RootHandle {
         self.revoked.store(true, Ordering::Release);
     }
 
-    pub fn strict_io_available(&self) -> bool {
-        false
+    pub fn operation_io_available(&self) -> ResourceResult<bool> {
+        self.identity()?;
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            Ok(true)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
     }
 
-    pub fn read(&self, _path: &RelativePath, _max_bytes: usize) -> ResourceResult<Vec<u8>> {
-        self.identity()?;
-        Err(ResourceError {
-            kind: ResourceErrorKind::StrictContainmentUnavailable,
-            raw_os_error: None,
-        })
+    pub fn read(&self, path: &RelativePath, max_bytes: usize) -> ResourceResult<Vec<u8>> {
+        self.open_read(path)?.read(max_bytes)
     }
 
-    pub fn create_new(&self, _path: &RelativePath, _content: &[u8]) -> ResourceResult<()> {
+    pub fn open_read(&self, path: &RelativePath) -> ResourceResult<OpenedRead<'_>> {
         self.identity()?;
-        Err(ResourceError {
-            kind: ResourceErrorKind::StrictContainmentUnavailable,
-            raw_os_error: None,
-        })
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            let file = macos::open_regular_read(&self.file, path.as_path())?;
+            self.check_revoked()?;
+            Ok(OpenedRead { file, root: self })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = path;
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
+    }
+
+    fn check_revoked(&self) -> ResourceResult<()> {
+        if self.revoked.load(Ordering::Acquire) {
+            return Err(ResourceError {
+                kind: ResourceErrorKind::Revoked,
+                raw_os_error: None,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn create_new(&self, path: &RelativePath, content: &[u8]) -> ResourceResult<()> {
+        self.identity()?;
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            if self.revoked.load(Ordering::Acquire) {
+                return Err(ResourceError {
+                    kind: ResourceErrorKind::Revoked,
+                    raw_os_error: None,
+                });
+            }
+            macos::create_new(&self.file, path.as_path(), content)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (path, content);
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
     }
 
     pub fn relation(&self, other: &Self) -> ResourceResult<RootRelation> {

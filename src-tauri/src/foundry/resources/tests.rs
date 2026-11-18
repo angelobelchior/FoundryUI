@@ -71,7 +71,7 @@ fn root_replacement_and_revocation_never_authorize_a_new_target() {
 }
 
 #[test]
-fn strict_io_stays_unavailable_instead_of_downgrading_to_pinned_object_access() {
+fn operation_scoped_io_reads_and_creates_without_claiming_continuous_location_containment() {
     let folder = tempfile::tempdir().expect("temporary directory");
     let selected = folder.path().join("selected");
     std::fs::create_dir(&selected).expect("directory");
@@ -79,20 +79,13 @@ fn strict_io_stays_unavailable_instead_of_downgrading_to_pinned_object_access() 
     let root = RootHandle::enroll(&selected).expect("root");
     let input = RelativePath::parse("input").expect("relative path");
     let new_file = RelativePath::parse("new-file").expect("relative path");
-    assert!(!root.strict_io_available());
+    assert!(root.operation_io_available().expect("operation capability"));
+    assert_eq!(root.read(&input, 4096).expect("read"), b"fixture-content");
+    root.create_new(&new_file, b"new-content").expect("create");
     assert_eq!(
-        root.read(&input, 4096)
-            .expect_err("strict containment unavailable")
-            .kind,
-        ResourceErrorKind::StrictContainmentUnavailable
+        std::fs::read(selected.join("new-file")).expect("created file"),
+        b"new-content"
     );
-    assert_eq!(
-        root.create_new(&new_file, b"must-not-write")
-            .expect_err("strict containment unavailable")
-            .kind,
-        ResourceErrorKind::StrictContainmentUnavailable
-    );
-    assert!(!selected.join("new-file").exists());
     assert_eq!(
         std::fs::read_to_string(selected.join("input")).expect("unchanged fixture"),
         "fixture-content"
@@ -191,7 +184,7 @@ fn missing_and_denied_roots_are_errors_not_empty_authorized_results() {
 }
 
 #[test]
-fn a_moved_parent_cannot_turn_strict_creation_into_a_write_outside_the_root() {
+fn a_parent_moved_before_an_operation_is_not_reopened_outside_the_root() {
     let folder = tempfile::tempdir().expect("temporary directory");
     let selected = folder.path().join("selected");
     let child = selected.join("child");
@@ -206,7 +199,209 @@ fn a_moved_parent_cannot_turn_strict_creation_into_a_write_outside_the_root() {
             b"not authorized",
         )
         .expect_err("blocked creation");
-    assert_eq!(error.kind, ResourceErrorKind::StrictContainmentUnavailable);
+    assert_eq!(error.kind, ResourceErrorKind::Unavailable);
     assert!(!moved.join("new-file").exists());
     assert!(root.relation(&child_root).is_err());
+}
+
+#[test]
+fn an_opened_operation_keeps_its_original_object_after_movement_and_path_replacement() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    let selected = folder.path().join("selected");
+    std::fs::create_dir(&selected).expect("directory");
+    std::fs::write(selected.join("input"), b"original-object").expect("fixture");
+    let root = RootHandle::enroll(&selected).expect("root");
+    let path = RelativePath::parse("input").expect("path");
+    let operation = root.open_read(&path).expect("validated operation");
+    std::fs::rename(selected.join("input"), folder.path().join("moved-input")).expect("move");
+    std::fs::write(selected.join("input"), b"replacement-object").expect("replacement");
+    assert_eq!(
+        operation.read(128).expect("same opened object"),
+        b"original-object"
+    );
+    assert_eq!(
+        root.read(&path, 128).expect("new operation"),
+        b"replacement-object"
+    );
+}
+
+#[test]
+fn child_symlinks_never_allow_reading_or_creating_through_another_target() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    let selected = folder.path().join("selected");
+    let outside = folder.path().join("outside");
+    std::fs::create_dir(&selected).expect("selected");
+    std::fs::create_dir(&outside).expect("outside");
+    std::fs::write(outside.join("secret"), b"outside-data").expect("outside fixture");
+    std::fs::write(selected.join("inside"), b"inside-data").expect("inside fixture");
+    symlink(outside.join("secret"), selected.join("link")).expect("file link");
+    symlink(&outside, selected.join("directory-link")).expect("directory link");
+    symlink(selected.join("inside"), selected.join("internal-link")).expect("internal link");
+    let root = RootHandle::enroll(&selected).expect("root");
+    for path in ["link", "directory-link/secret", "internal-link"] {
+        assert_eq!(
+            root.read(&RelativePath::parse(path).expect("path"), 128)
+                .expect_err("link denied")
+                .kind,
+            ResourceErrorKind::AccessDenied
+        );
+    }
+    assert!(
+        root.create_new(
+            &RelativePath::parse("directory-link/new").expect("path"),
+            b"not allowed"
+        )
+        .is_err()
+    );
+    assert!(!outside.join("new").exists());
+    assert!(
+        root.create_new(&RelativePath::parse("link").expect("path"), b"not allowed")
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read(outside.join("secret")).expect("unchanged outside"),
+        b"outside-data"
+    );
+}
+
+#[test]
+fn exclusive_creation_preserves_existing_files_and_uses_the_validated_parent() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    std::fs::create_dir(folder.path().join("parent")).expect("parent");
+    std::fs::write(folder.path().join("existing"), b"keep-me").expect("fixture");
+    let root = RootHandle::enroll(folder.path()).expect("root");
+    assert_eq!(
+        root.create_new(
+            &RelativePath::parse("existing").expect("path"),
+            b"overwrite"
+        )
+        .expect_err("existing")
+        .kind,
+        ResourceErrorKind::AlreadyExists
+    );
+    root.create_new(
+        &RelativePath::parse("parent/new").expect("path"),
+        b"created",
+    )
+    .expect("nested creation");
+    assert_eq!(
+        root.read(&RelativePath::parse("parent/new").expect("path"), 128)
+            .expect("read created"),
+        b"created"
+    );
+    assert_eq!(
+        std::fs::read(folder.path().join("existing")).expect("unchanged"),
+        b"keep-me"
+    );
+    let permissions = std::fs::metadata(folder.path().join("parent/new"))
+        .expect("metadata")
+        .permissions()
+        .mode();
+    assert_eq!(permissions & 0o777, 0o600);
+}
+
+#[test]
+fn bounded_reads_distinguish_empty_missing_oversized_and_special_resources() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    std::fs::write(folder.path().join("empty"), []).expect("empty");
+    std::fs::write(folder.path().join("large"), b"12345").expect("large");
+    std::fs::create_dir(folder.path().join("directory")).expect("directory");
+    let fifo = std::ffi::CString::new(folder.path().join("fifo").as_os_str().as_encoded_bytes())
+        .expect("FIFO path");
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let root = RootHandle::enroll(folder.path()).expect("root");
+    assert_eq!(
+        root.read(&RelativePath::parse("empty").expect("path"), 0)
+            .expect("empty EOF"),
+        b""
+    );
+    assert_eq!(
+        root.read(&RelativePath::parse("missing").expect("path"), 16)
+            .expect_err("missing")
+            .kind,
+        ResourceErrorKind::Unavailable
+    );
+    assert_eq!(
+        root.read(&RelativePath::parse("large").expect("path"), 4)
+            .expect_err("too large")
+            .kind,
+        ResourceErrorKind::LimitExceeded
+    );
+    for path in ["directory", "fifo"] {
+        assert_eq!(
+            root.read(&RelativePath::parse(path).expect("path"), 16)
+                .expect_err("special resource")
+                .kind,
+            ResourceErrorKind::UnsupportedResourceType
+        );
+    }
+}
+
+#[test]
+fn explicit_revocation_stops_prepared_reads_and_new_effects() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    std::fs::write(folder.path().join("input"), b"private-data").expect("fixture");
+    let root = RootHandle::enroll(folder.path()).expect("root");
+    let operation = root
+        .open_read(&RelativePath::parse("input").expect("path"))
+        .expect("open");
+    root.revoke();
+    assert_eq!(
+        operation.read(128).expect_err("revoked operation").kind,
+        ResourceErrorKind::Revoked
+    );
+    assert_eq!(
+        root.create_new(&RelativePath::parse("new").expect("path"), b"not allowed")
+            .expect_err("revoked creation")
+            .kind,
+        ResourceErrorKind::Revoked
+    );
+    assert!(!folder.path().join("new").exists());
+}
+
+#[test]
+fn post_create_validation_failure_reports_a_partial_effect_without_unlinking() {
+    if std::env::var_os("FOUNDRY_IO_FAULT_CHILD").is_some() {
+        let folder = tempfile::tempdir().expect("temporary directory");
+        let root = RootHandle::enroll(folder.path()).expect("root");
+        let error = root
+            .create_new(
+                &RelativePath::parse("post-create-validation").expect("path"),
+                b"not written",
+            )
+            .expect_err("injected validation failure");
+        assert_eq!(error.kind, ResourceErrorKind::WriteIncomplete);
+        assert_eq!(error.raw_os_error, Some(libc::EIO));
+        let metadata = std::fs::metadata(folder.path().join("post-create-validation"))
+            .expect("created entry remains");
+        assert_eq!(metadata.len(), 0);
+        return;
+    }
+    let fixture = tempfile::tempdir().expect("fixture directory");
+    let library = fixture.path().join("fail_created_stat.dylib");
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/foundry/resources/test-fixtures/fail_created_stat.c");
+    let compiled = std::process::Command::new("/usr/bin/cc")
+        .args(["-dynamiclib", "-Wall", "-Wextra", "-Werror"])
+        .arg(source)
+        .arg("-o")
+        .arg(&library)
+        .output()
+        .expect("compile local fault fixture");
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let child = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--exact", "foundry::resources::tests::post_create_validation_failure_reports_a_partial_effect_without_unlinking", "--nocapture"])
+        .env("FOUNDRY_IO_FAULT_CHILD", "1").env("DYLD_INSERT_LIBRARIES", &library)
+        .output().expect("run isolated fault fixture");
+    assert!(
+        child.status.success(),
+        "{}\n{}\n{}",
+        child.status,
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
 }

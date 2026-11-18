@@ -1,6 +1,6 @@
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::io::{self, Read, Write};
 use std::mem::{MaybeUninit, size_of};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
@@ -99,16 +99,194 @@ pub(super) fn identity(file: &File) -> ResourceResult<RootIdentity> {
 }
 
 pub(super) fn io_error(error: io::Error) -> ResourceError {
-    let kind = match error.kind() {
-        io::ErrorKind::PermissionDenied => ResourceErrorKind::AccessDenied,
-        io::ErrorKind::NotADirectory => ResourceErrorKind::NotDirectory,
-        io::ErrorKind::Unsupported => ResourceErrorKind::UnsupportedVolume,
-        _ => ResourceErrorKind::Unavailable,
+    let kind = match error.raw_os_error() {
+        Some(libc::ELOOP | libc::ENOTCAPABLE) => ResourceErrorKind::AccessDenied,
+        _ => match error.kind() {
+            io::ErrorKind::PermissionDenied => ResourceErrorKind::AccessDenied,
+            io::ErrorKind::NotADirectory => ResourceErrorKind::NotDirectory,
+            io::ErrorKind::Unsupported => ResourceErrorKind::UnsupportedVolume,
+            io::ErrorKind::AlreadyExists => ResourceErrorKind::AlreadyExists,
+            _ => ResourceErrorKind::Unavailable,
+        },
     };
     ResourceError {
         kind,
         raw_os_error: error.raw_os_error(),
     }
+}
+
+const O_RESOLVE_BENEATH: libc::c_int = 0x00001000;
+const MAX_OPERATION_BYTES: usize = 16 * 1024 * 1024;
+
+pub(super) fn verify_operation_lookup(root: &File) -> ResourceResult<()> {
+    let mut filesystem = MaybeUninit::<libc::statfs>::uninit();
+    if unsafe { libc::fstatfs(root.as_raw_fd(), filesystem.as_mut_ptr()) } != 0 {
+        return Err(io_error(io::Error::last_os_error()));
+    }
+    if unsafe { filesystem.assume_init() }.f_flags & libc::MNT_LOCAL as u32 == 0 {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    for path in [c"/", c".."] {
+        let descriptor = unsafe {
+            libc::openat(
+                root.as_raw_fd(),
+                path.as_ptr(),
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_CLOEXEC
+                    | libc::O_NOFOLLOW_ANY
+                    | O_RESOLVE_BENEATH,
+            )
+        };
+        if descriptor >= 0 {
+            drop(unsafe { File::from_raw_fd(descriptor) });
+            return Err(ResourceError {
+                kind: ResourceErrorKind::OperationContainmentUnavailable,
+                raw_os_error: None,
+            });
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ENOTCAPABLE) {
+            return Err(ResourceError {
+                kind: ResourceErrorKind::OperationContainmentUnavailable,
+                raw_os_error: error.raw_os_error(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn open_beneath(root: &File, path: &Path, flags: i32, mode: libc::mode_t) -> ResourceResult<File> {
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| ResourceError {
+        kind: ResourceErrorKind::InvalidPath,
+        raw_os_error: None,
+    })?;
+    let descriptor = unsafe {
+        libc::openat(
+            root.as_raw_fd(),
+            path.as_ptr(),
+            flags | libc::O_CLOEXEC | libc::O_NOFOLLOW_ANY | O_RESOLVE_BENEATH,
+            mode as libc::c_uint,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io_error(io::Error::last_os_error()));
+    }
+    Ok(unsafe { File::from_raw_fd(descriptor) })
+}
+
+fn stat(file: &File) -> ResourceResult<libc::stat> {
+    let mut metadata = MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(file.as_raw_fd(), metadata.as_mut_ptr()) } != 0 {
+        return Err(io_error(io::Error::last_os_error()));
+    }
+    Ok(unsafe { metadata.assume_init() })
+}
+
+fn validate_regular(root: &File, file: &File) -> ResourceResult<()> {
+    let actual = stat(file)?;
+    if actual.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedResourceType,
+            raw_os_error: None,
+        });
+    }
+    if actual.st_dev != stat(root)?.st_dev {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn open_regular_read(root: &File, path: &Path) -> ResourceResult<File> {
+    let file = open_beneath(root, path, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
+    validate_regular(root, &file)?;
+    Ok(file)
+}
+
+pub(super) fn read_bounded(file: &mut File, max_bytes: usize) -> ResourceResult<Vec<u8>> {
+    if max_bytes > MAX_OPERATION_BYTES {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::LimitExceeded,
+            raw_os_error: None,
+        });
+    }
+    let before = stat(file)?;
+    if before.st_size < 0 || before.st_size as u64 > max_bytes as u64 {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::LimitExceeded,
+            raw_os_error: None,
+        });
+    }
+    let mut bytes = Vec::new();
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    if bytes.len() > max_bytes {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::LimitExceeded,
+            raw_os_error: None,
+        });
+    }
+    let after = stat(file)?;
+    if before.st_ino != after.st_ino
+        || before.st_dev != after.st_dev
+        || before.st_size != after.st_size
+        || before.st_mtime != after.st_mtime
+        || before.st_mtime_nsec != after.st_mtime_nsec
+    {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::ResourceChanged,
+            raw_os_error: None,
+        });
+    }
+    Ok(bytes)
+}
+
+pub(super) fn create_new(root: &File, path: &Path, content: &[u8]) -> ResourceResult<()> {
+    if content.len() > MAX_OPERATION_BYTES {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::LimitExceeded,
+            raw_os_error: None,
+        });
+    }
+    let parent_path = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().ok_or(ResourceError {
+        kind: ResourceErrorKind::InvalidPath,
+        raw_os_error: None,
+    })?;
+    let parent = open_beneath(root, parent_path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+    if stat(&parent)?.st_dev != stat(root)?.st_dev {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    let mut file = open_beneath(
+        &parent,
+        Path::new(name),
+        libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NONBLOCK,
+        0o600,
+    )?;
+    validate_regular(&parent, &file).map_err(|error| ResourceError {
+        kind: ResourceErrorKind::WriteIncomplete,
+        raw_os_error: error.raw_os_error,
+    })?;
+    if let Err(error) = file.write_all(content).and_then(|_| file.sync_all()) {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::WriteIncomplete,
+            raw_os_error: error.raw_os_error(),
+        });
+    }
+    Ok(())
 }
 
 pub(super) fn ancestry(file: &File) -> ResourceResult<Vec<RootIdentity>> {
