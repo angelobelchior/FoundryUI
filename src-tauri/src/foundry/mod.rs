@@ -16,6 +16,7 @@ pub mod jobs;
 pub mod json;
 pub mod model_cache;
 pub mod params;
+pub mod resources;
 pub mod server;
 pub mod speech;
 pub mod vectorize;

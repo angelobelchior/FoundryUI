@@ -1,3 +1,5 @@
+pub mod agent;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -13,6 +15,7 @@ use super::jobs::now_millis;
 use super::params::ResolvedParams;
 
 const SCHEMA: &str = include_str!("../../schema.sql");
+const AGENT_SCHEMA: &str = include_str!("../../agent-schema.sql");
 const SCHEMA_STAMP_SUFFIX: &str = ".schema";
 const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_PAGE: u32 = 80;
@@ -340,6 +343,7 @@ impl Database {
 
         apply_schema(&connection)?;
         recover_interrupted(&connection)?;
+        agent::recover_interrupted(&connection).map_err(storage)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
@@ -462,11 +466,16 @@ impl Database {
     }
 
     pub fn delete_conversation(&self, id: i64) -> FoundryResult<()> {
-        let connection = self.connection();
+        let mut connection = self.connection();
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        agent::ensure_removable(&transaction, id).map_err(storage)?;
 
-        connection
+        transaction
             .execute("DELETE FROM conversations WHERE id = ?1", [id])
             .map_err(storage)?;
+        transaction.commit().map_err(storage)?;
 
         Ok(())
     }
@@ -1883,13 +1892,7 @@ fn heuristic_title(content: &str) -> String {
 }
 
 fn next_seq(connection: &Connection, conversation_id: i64) -> FoundryResult<i64> {
-    connection
-        .query_row(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conversation_id = ?1",
-            [conversation_id],
-            |row| row.get(0),
-        )
-        .map_err(storage)
+    agent::next_sequence(connection, conversation_id).map_err(storage)
 }
 
 fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
@@ -2014,6 +2017,7 @@ fn attachment_from_row(row: &Row<'_>) -> rusqlite::Result<Attachment> {
 
 fn apply_schema(connection: &Connection) -> FoundryResult<()> {
     connection.execute_batch(SCHEMA).map_err(storage)?;
+    connection.execute_batch(AGENT_SCHEMA).map_err(storage)?;
 
     Ok(())
 }
@@ -2021,7 +2025,7 @@ fn apply_schema(connection: &Connection) -> FoundryResult<()> {
 fn schema_stamp() -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
 
-    for byte in SCHEMA.as_bytes() {
+    for byte in SCHEMA.as_bytes().iter().chain(AGENT_SCHEMA.as_bytes()) {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
