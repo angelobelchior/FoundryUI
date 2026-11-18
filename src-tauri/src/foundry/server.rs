@@ -1,4 +1,5 @@
-use std::sync::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
@@ -12,6 +13,7 @@ use super::http::{
     health_check,
 };
 use super::json::{DaemonFile, ServerSnapshot, ServerStatus, parse_json};
+use super::local_inference::{VerifiedLocalEndpoint, verify_foundry_endpoint};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +76,7 @@ pub struct ServerManager {
     state: Mutex<ServerState>,
     preferences: Mutex<ServerPreferences>,
     client: Client,
+    session_revision: Arc<AtomicU64>,
 }
 
 impl ServerManager {
@@ -82,6 +85,7 @@ impl ServerManager {
             state: Mutex::new(ServerState::default()),
             preferences: Mutex::new(preferences.normalized()),
             client: build_client(),
+            session_revision: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -90,7 +94,20 @@ impl ServerManager {
     }
 
     pub fn set_preferences(&self, preferences: ServerPreferences) {
-        *lock(&self.preferences) = preferences.normalized();
+        let changed = {
+            let mut current = lock(&self.preferences);
+            let changed = current.port != preferences.port;
+            *current = preferences.normalized();
+            changed
+        };
+        if changed {
+            self.invalidate_prepared_context();
+        }
+    }
+
+    pub(crate) fn invalidate_prepared_context(&self) {
+        let _state = lock(&self.state);
+        self.session_revision.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn endpoint(&self) -> Option<String> {
@@ -107,6 +124,81 @@ impl ServerManager {
         .with_connect_seconds(preferences.connect_timeout_secs)
     }
 
+    pub async fn verified_endpoint(
+        &self,
+        cli: &CliBackend,
+    ) -> FoundryResult<VerifiedLocalEndpoint> {
+        let expected_revision = {
+            let _state = lock(&self.state);
+            self.session_revision.load(Ordering::SeqCst)
+        };
+        let status = match cli.server_status().await {
+            Ok(status) => status,
+            Err(_) => {
+                self.invalidate_prepared_context();
+                return Err(FoundryError::ServerUnreachable {
+                    detail:
+                        "the local runtime identity could not be refreshed; no context was sent"
+                            .to_string(),
+                });
+            }
+        };
+        let revision = {
+            let mut state = lock(&self.state);
+            if self.session_revision.load(Ordering::SeqCst) != expected_revision {
+                return Err(super::http::local_inference_error(
+                    super::local_inference::LocalInferenceError::SessionChanged,
+                ));
+            }
+            self.update_session(
+                &mut state,
+                Some(status.clone()),
+                status
+                    .endpoint()
+                    .filter(|_| status.running)
+                    .map(str::to_string),
+                Ownership::Keep,
+            )
+        };
+        let endpoint = status
+            .endpoint()
+            .filter(|_| status.running)
+            .ok_or_else(|| FoundryError::ServerUnreachable {
+                detail: "start the verified local server and try again".to_string(),
+            })?
+            .to_string();
+        let pid = status.pid.ok_or_else(|| FoundryError::ServerUnreachable {
+            detail: "the local runtime did not provide a process identity; no context was sent"
+                .to_string(),
+        })?;
+        let cli_path = std::path::PathBuf::from(cli.info().path);
+        let connect = self.stream_timeouts().connect;
+        let proof = tokio::time::timeout(
+            connect,
+            tokio::task::spawn_blocking(move || {
+                verify_foundry_endpoint(&cli_path, pid, &endpoint, connect)
+            }),
+        )
+        .await
+        .map_err(|_| {
+            super::http::local_inference_error(
+                super::local_inference::LocalInferenceError::RequestTimedOut,
+            )
+        })?
+        .map_err(|_| {
+            super::http::local_inference_error(
+                super::local_inference::LocalInferenceError::RuntimeUnverified,
+            )
+        })?
+        .map_err(super::http::local_inference_error)?;
+        if self.session_revision.load(Ordering::SeqCst) != revision {
+            return Err(super::http::local_inference_error(
+                super::local_inference::LocalInferenceError::SessionChanged,
+            ));
+        }
+        Ok(proof.bind_session(self.session_revision.clone(), revision))
+    }
+
     pub fn snapshot(&self) -> ServerSnapshot {
         snapshot_from(&lock(&self.state))
     }
@@ -118,7 +210,9 @@ impl ServerManager {
     }
 
     pub fn mark_stopped(&self) {
-        *lock(&self.state) = ServerState::default();
+        let mut state = lock(&self.state);
+        self.session_revision.fetch_add(1, Ordering::SeqCst);
+        *state = ServerState::default();
     }
 
     pub async fn observe_cached(
@@ -188,7 +282,10 @@ impl ServerManager {
 
                 Ok(self.snapshot())
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                self.invalidate_prepared_context();
+                Err(error)
+            }
         }
     }
 
@@ -212,6 +309,7 @@ impl ServerManager {
     }
 
     pub async fn stop(&self, cli: &CliBackend) -> FoundryResult<ServerSnapshot> {
+        self.invalidate_prepared_context();
         cli.server_stop().await?;
         self.mark_stopped();
 
@@ -219,6 +317,7 @@ impl ServerManager {
     }
 
     pub async fn restart(&self, cli: &CliBackend) -> FoundryResult<ServerSnapshot> {
+        self.invalidate_prepared_context();
         let (was_running, started_by_app) = {
             let state = lock(&self.state);
 
@@ -283,8 +382,29 @@ impl ServerManager {
         status: Option<ServerStatus>,
         endpoint: Option<String>,
         ownership: Ownership,
-    ) {
+    ) -> u64 {
         let mut state = lock(&self.state);
+        self.update_session(&mut state, status, endpoint, ownership)
+    }
+
+    fn update_session(
+        &self,
+        state: &mut ServerState,
+        status: Option<ServerStatus>,
+        endpoint: Option<String>,
+        ownership: Ownership,
+    ) -> u64 {
+        let binding_changed = state.endpoint != endpoint
+            || status.as_ref().is_some_and(|next| {
+                state.status.as_ref().is_none_or(|current| {
+                    current.pid != next.pid
+                        || current.started_at != next.started_at
+                        || current.running != next.running
+                })
+            });
+        if binding_changed {
+            self.session_revision.fetch_add(1, Ordering::SeqCst);
+        }
 
         if let Some(status) = status {
             state.status = Some(status);
@@ -296,6 +416,7 @@ impl ServerManager {
         if let Some(started) = ownership.started_by_app() {
             state.started_by_app = started;
         }
+        self.session_revision.load(Ordering::SeqCst)
     }
 
     async fn daemon_status(&self) -> Option<ServerStatus> {
@@ -398,6 +519,7 @@ mod tests {
                 web_urls: vec!["http://127.0.0.1:54182".to_string()],
                 ..ServerStatus::default()
             }),
+            ..ServerState::default()
         };
 
         let snapshot = snapshot_from(&state);
@@ -433,6 +555,208 @@ mod tests {
         });
 
         assert!(!manager.should_stop_on_exit());
+    }
+
+    #[cfg(target_os = "macos")]
+    struct Runtime(std::process::Child);
+
+    #[cfg(target_os = "macos")]
+    impl Drop for Runtime {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    struct NativeServerFixture {
+        _runtime: Runtime,
+        directory: tempfile::TempDir,
+        cli: CliBackend,
+        status: ServerStatus,
+    }
+
+    #[cfg(target_os = "macos")]
+    impl NativeServerFixture {
+        fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+
+            let directory = tempfile::tempdir().expect("fixture installation");
+            let folder = directory.path().canonicalize().expect("canonical folder");
+            let executable = folder.join("foundrylocald");
+            let source = folder.join("runtime.c");
+            std::fs::write(&source, "#include <arpa/inet.h>\n#include <stdlib.h>\n#include <sys/socket.h>\n#include <unistd.h>\nint main(int argc, char **argv) { if (argc != 2) return 1; int fd = socket(AF_INET, SOCK_STREAM, 0); struct sockaddr_in a = {0}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons(atoi(argv[1])); if (fd < 0 || bind(fd, (struct sockaddr *)&a, sizeof(a)) || listen(fd, 4)) return 2; sleep(30); close(fd); return 0; }\n").expect("fixture source");
+            assert!(
+                std::process::Command::new("/usr/bin/cc")
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&executable)
+                    .status()
+                    .expect("fixture compiler")
+                    .success()
+            );
+            let reserve = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve port");
+            let address = reserve.local_addr().expect("address");
+            drop(reserve);
+            let runtime = Runtime(
+                std::process::Command::new(&executable)
+                    .arg(address.port().to_string())
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .expect("controlled runtime"),
+            );
+            let cli_path = folder.join("foundry");
+            std::fs::write(
+                &cli_path,
+                format!(
+                    r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo 'foundry 0.13.0'
+    exit 0
+fi
+status=$(/bin/cat '{folder}/status.json') || exit 1
+if [ -f '{folder}/gate' ]; then
+    printf '%s' "$status" > '{folder}/captured.json'
+    /usr/bin/touch '{folder}/ready'
+    attempts=0
+    while [ ! -f '{folder}/release' ]; do
+        [ "$attempts" -lt 250 ] || exit 1
+        /bin/sleep 0.02
+        attempts=$((attempts + 1))
+    done
+fi
+printf '%s' "$status"
+"#,
+                    folder = folder.display()
+                ),
+            )
+            .expect("fixture CLI");
+            std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o700))
+                .expect("CLI permissions");
+            let cli = CliBackend::detect_from(&[cli_path]).expect("fixture CLI detection");
+            let status = ServerStatus {
+                running: true,
+                pid: Some(runtime.0.id()),
+                web_urls: vec![format!("http://{address}")],
+                ..ServerStatus::default()
+            };
+            let fixture = Self {
+                _runtime: runtime,
+                directory,
+                cli,
+                status,
+            };
+            fixture.write_status();
+            fixture
+        }
+
+        fn write_status(&self) {
+            std::fs::write(
+                self.directory.path().join("status.json"),
+                serde_json::to_vec(&self.status).expect("status JSON"),
+            )
+            .expect("fixture status");
+        }
+
+        async fn prepare(&self, manager: &ServerManager) -> VerifiedLocalEndpoint {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match manager.verified_endpoint(&self.cli).await {
+                    Ok(prepared) => {
+                        prepared.revalidate().expect("native fixture proof");
+                        return prepared;
+                    }
+                    Err(_) if Instant::now() < deadline => {
+                        tokio::time::sleep(Duration::from_millis(20)).await
+                    }
+                    Err(error) => panic!("native fixture did not become ready: {error}"),
+                }
+            }
+        }
+
+        fn gate_status(&self) {
+            std::fs::write(self.directory.path().join("gate"), "").expect("enable status gate");
+        }
+
+        async fn wait_for_captured_status(&self) {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !self.directory.path().join("ready").exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("CLI captured status before deadline");
+            let captured: ServerStatus = serde_json::from_slice(
+                &std::fs::read(self.directory.path().join("captured.json"))
+                    .expect("captured status"),
+            )
+            .expect("captured status JSON");
+            assert!(captured.running);
+            assert_eq!(captured.pid, self.status.pid);
+            assert_eq!(captured.endpoint(), self.status.endpoint());
+        }
+
+        fn release_status(&self) {
+            std::fs::write(self.directory.path().join("release"), "").expect("release status gate");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl Drop for NativeServerFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::write(self.directory.path().join("release"), "");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "macos")]
+    async fn an_observed_stop_invalidates_prepared_context_even_while_the_process_still_listens() {
+        let mut fixture = NativeServerFixture::new();
+        let manager = ServerManager::new(ServerPreferences::default());
+        let prepared = fixture.prepare(&manager).await;
+        fixture.status.running = false;
+        fixture.write_status();
+        assert!(manager.verified_endpoint(&fixture.cli).await.is_err());
+        assert!(!manager.snapshot().running);
+        assert_eq!(
+            prepared.revalidate(),
+            Err(super::super::local_inference::LocalInferenceError::SessionChanged)
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "macos")]
+    async fn an_in_flight_discovery_cannot_adopt_a_session_invalidated_by_a_stop() {
+        let fixture = NativeServerFixture::new();
+        let manager = Arc::new(ServerManager::new(ServerPreferences::default()));
+        let prepared = fixture.prepare(&manager).await;
+        fixture.gate_status();
+        let discovery = tokio::spawn({
+            let manager = manager.clone();
+            let cli = fixture.cli.clone();
+            async move { manager.verified_endpoint(&cli).await }
+        });
+        fixture.wait_for_captured_status().await;
+        manager.mark_stopped();
+        fixture.release_status();
+
+        let error = tokio::time::timeout(Duration::from_secs(5), discovery)
+            .await
+            .expect("discovery completed before deadline")
+            .expect("discovery task completed")
+            .expect_err("stale discovery must not produce a verified endpoint");
+        assert_eq!(error.code(), "CommandFailed");
+        assert!(
+            matches!(error, FoundryError::CommandFailed { message, .. } if message.contains("changed"))
+        );
+        assert!(!manager.snapshot().running);
+        assert_eq!(manager.endpoint(), None);
+        assert_eq!(
+            prepared.revalidate(),
+            Err(super::super::local_inference::LocalInferenceError::SessionChanged)
+        );
     }
 
     #[tokio::test]

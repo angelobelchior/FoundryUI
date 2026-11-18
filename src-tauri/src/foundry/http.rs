@@ -11,6 +11,14 @@ pub const TOKEN_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub fn local_inference_error(error: super::local_inference::LocalInferenceError) -> FoundryError {
+    FoundryError::CommandFailed {
+        command: "local_inference".to_string(),
+        message: error.to_string(),
+        hint: Some("Context was not sent to an unverified destination. Restart the local Foundry runtime and retry; tool network permissions do not authorize remote inference.".to_string()),
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct StreamTimeouts {
     pub connect: Duration,
@@ -39,10 +47,12 @@ pub fn build_client() -> Client {
 
 pub fn build_client_with(connect: Duration) -> Client {
     Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(connect)
         .pool_idle_timeout(Duration::from_secs(90))
         .build()
-        .unwrap_or_default()
+        .expect("fixed local HTTP client options")
 }
 
 pub async fn health_check(client: &Client, base_url: &str) -> bool {

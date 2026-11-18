@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
@@ -7,7 +6,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
 
-use super::db::Database;
 use super::error::{FoundryError, FoundryResult};
 use super::jobs::now_millis;
 
@@ -29,37 +27,30 @@ pub struct StagedAttachment {
 #[derive(Debug, Clone)]
 pub struct StagedFile {
     pub meta: StagedAttachment,
-    pub path: PathBuf,
+    pub data: Vec<u8>,
 }
 
+#[derive(Default)]
 pub struct AttachmentStore {
-    root: PathBuf,
     staged: Mutex<HashMap<String, StagedFile>>,
 }
 
 impl AttachmentStore {
-    pub fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            staged: Mutex::new(HashMap::new()),
-        }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn store(&self, data_url: &str) -> FoundryResult<StagedAttachment> {
-        let (declared, bytes) = decode_data_url(data_url)?;
+        let (declared, data) = decode_data_url(data_url)?;
 
-        if bytes.len() > MAX_IMAGE_BYTES {
+        if data.len() > MAX_IMAGE_BYTES {
             return Err(rejected(format!(
                 "the image is larger than {} MB",
                 MAX_IMAGE_BYTES / (1024 * 1024)
             )));
         }
 
-        let Some((mime, extension)) = sniff_image(&bytes) else {
+        let Some(mime) = sniff_image(&data) else {
             return Err(rejected(format!(
                 "the file is not a supported image ({declared})"
             )));
@@ -69,16 +60,11 @@ impl AttachmentStore {
             now_millis(),
             TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
-        let path = self.root.join(format!("{token}.{extension}"));
-
-        std::fs::create_dir_all(&self.root).map_err(storage)?;
-        std::fs::write(&path, &bytes).map_err(storage)?;
-
-        let (width, height) = image_size(&bytes);
+        let (width, height) = image_size(&data);
         let meta = StagedAttachment {
             token: token.clone(),
             mime: mime.to_string(),
-            bytes: bytes.len() as u64,
+            bytes: data.len() as u64,
             width,
             height,
         };
@@ -87,7 +73,7 @@ impl AttachmentStore {
             token,
             StagedFile {
                 meta: meta.clone(),
-                path,
+                data,
             },
         );
 
@@ -95,16 +81,10 @@ impl AttachmentStore {
     }
 
     pub fn discard(&self, tokens: &[String]) {
-        for token in tokens {
-            if let Some(staged) = lock(&self.staged).remove(token) {
-                let _ = std::fs::remove_file(staged.path);
-            }
-        }
-    }
+        let mut staged = lock(&self.staged);
 
-    pub fn remove_paths(&self, paths: &[String]) {
-        for path in paths {
-            let _ = std::fs::remove_file(path);
+        for token in tokens {
+            staged.remove(token);
         }
     }
 
@@ -124,6 +104,11 @@ impl AttachmentStore {
         }
 
         let mut staged = lock(&self.staged);
+
+        if unique.iter().any(|token| !staged.contains_key(*token)) {
+            return Err(rejected("the image is no longer available"));
+        }
+
         let mut files = Vec::new();
 
         for token in unique {
@@ -136,41 +121,10 @@ impl AttachmentStore {
 
         Ok(files)
     }
-
-    pub fn sweep(&self, database: &Database) -> FoundryResult<u64> {
-        if !self.root.is_dir() {
-            return Ok(0);
-        }
-
-        let referenced = database.attachment_paths()?;
-        let staged: HashSet<String> = lock(&self.staged)
-            .values()
-            .map(|file| file.path.to_string_lossy().to_string())
-            .collect();
-        let mut removed = 0;
-
-        for entry in std::fs::read_dir(&self.root).map_err(storage)? {
-            let entry = entry.map_err(storage)?;
-            let path = entry.path();
-            let path = path.to_string_lossy().to_string();
-
-            if !Path::new(&path).is_file() || referenced.contains(&path) || staged.contains(&path) {
-                continue;
-            }
-
-            if std::fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
-        }
-
-        Ok(removed)
-    }
 }
 
-pub fn file_data_url(path: &Path, mime: &str) -> FoundryResult<String> {
-    let bytes = std::fs::read(path).map_err(storage)?;
-
-    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+pub fn image_data_url(data: &[u8], mime: &str) -> String {
+    format!("data:{mime};base64,{}", STANDARD.encode(data))
 }
 
 fn decode_data_url(input: &str) -> FoundryResult<(String, Vec<u8>)> {
@@ -201,23 +155,23 @@ fn decode_data_url(input: &str) -> FoundryResult<(String, Vec<u8>)> {
     Ok((declared.to_string(), bytes))
 }
 
-fn sniff_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
     const PNG: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
     if bytes.starts_with(PNG) {
-        return Some(("image/png", "png"));
+        return Some("image/png");
     }
 
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Some(("image/jpeg", "jpg"));
+        return Some("image/jpeg");
     }
 
     if bytes.starts_with(b"GIF8") {
-        return Some(("image/gif", "gif"));
+        return Some("image/gif");
     }
 
     if bytes.len() > 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-        return Some(("image/webp", "webp"));
+        return Some("image/webp");
     }
 
     None
@@ -296,12 +250,6 @@ fn rejected(reason: impl Into<String>) -> FoundryError {
     }
 }
 
-fn storage(error: impl std::fmt::Display) -> FoundryError {
-    FoundryError::Storage {
-        detail: error.to_string(),
-    }
-}
-
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -323,50 +271,54 @@ mod tests {
         bytes
     }
 
-    fn store() -> (tempfile::TempDir, AttachmentStore) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = AttachmentStore::new(directory.path().join("attachments"));
-
-        (directory, store)
-    }
-
     #[test]
-    fn stores_png_images_with_size_and_dimensions() {
-        let (_directory, store) = store();
-        let staged = store.store(PIXEL).expect("stored");
+    fn stores_png_images_with_owned_bytes_size_and_dimensions() {
+        let store = AttachmentStore::new();
+        let mut input = PIXEL.to_owned();
+        let staged = store.store(&input).expect("stored");
+        input.clear();
 
         assert_eq!(staged.mime, "image/png");
         assert_eq!(staged.width, Some(1));
         assert_eq!(staged.height, Some(1));
-        assert!(staged.bytes > 0);
-        assert!(
-            std::fs::read_dir(store.root())
-                .expect("dir")
-                .next()
-                .is_some()
-        );
+        assert_eq!(staged.bytes, 70);
 
         let files = store
             .take(std::slice::from_ref(&staged.token))
             .expect("taken");
 
         assert_eq!(files.len(), 1);
-        assert!(files[0].path.is_file());
+        assert_eq!(files[0].meta.token, staged.token);
+        assert_eq!(&files[0].data[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(image_data_url(&files[0].data, &files[0].meta.mime), PIXEL);
         assert!(store.take(&[staged.token]).is_err());
     }
 
     #[test]
-    fn reads_jpeg_dimensions_from_the_frame_header() {
-        let bytes = jpeg(640, 480);
-        let (width, height) = image_size(&bytes);
+    fn default_store_stages_images() {
+        let store = AttachmentStore::default();
+        let staged = store.store(PIXEL).expect("stored");
 
-        assert_eq!((width, height), (Some(640), Some(480)));
+        assert_eq!(store.take(&[staged.token]).expect("taken").len(), 1);
+    }
+
+    #[test]
+    fn reads_jpeg_dimensions_from_staged_bytes() {
+        let store = AttachmentStore::new();
+        let data = jpeg(640, 480);
+        let staged = store
+            .store(&image_data_url(&data, "image/jpeg"))
+            .expect("stored");
+
+        assert_eq!(staged.mime, "image/jpeg");
+        assert_eq!((staged.width, staged.height), (Some(640), Some(480)));
+        assert_eq!(store.take(&[staged.token]).expect("taken")[0].data, data);
     }
 
     #[test]
     fn rejects_files_that_are_not_images() {
-        let (_directory, store) = store();
-        let text = format!("data:text/plain;base64,{}", STANDARD.encode(b"hello"));
+        let store = AttachmentStore::new();
+        let text = image_data_url(b"hello", "text/plain");
         let error = store.store(&text).expect_err("text is rejected");
 
         assert_eq!(error.code(), "AttachmentRejected");
@@ -379,59 +331,285 @@ mod tests {
 
     #[test]
     fn rejects_malformed_data_urls() {
-        let (_directory, store) = store();
+        let store = AttachmentStore::new();
 
-        assert!(store.store("image/png;base64,AAAA").is_err());
-        assert!(store.store("data:image/png,AAAA").is_err());
-        assert!(store.store("data:image/png;base64,").is_err());
+        for input in [
+            "image/png;base64,AAAA",
+            "data:image/png,AAAA",
+            "data:image/png;base64,",
+            "data:image/png;base64,???",
+            "data:image/png;base64",
+        ] {
+            assert_eq!(
+                store.store(input).expect_err("rejected").code(),
+                "AttachmentRejected"
+            );
+        }
     }
 
     #[test]
-    fn limits_the_number_of_images_per_message() {
-        let (_directory, store) = store();
+    fn limits_the_number_of_images_without_consuming_staged_bytes() {
+        let store = AttachmentStore::new();
         let tokens: Vec<String> = (0..=MAX_IMAGES_PER_MESSAGE)
             .map(|_| store.store(PIXEL).expect("stored").token)
             .collect();
         let error = store.take(&tokens).expect_err("too many images");
 
         assert_eq!(error.code(), "AttachmentRejected");
-        store.discard(&tokens);
+        assert_eq!(
+            store
+                .take(&tokens[..MAX_IMAGES_PER_MESSAGE])
+                .expect("first four")
+                .len(),
+            MAX_IMAGES_PER_MESSAGE
+        );
+        assert_eq!(
+            store
+                .take(&tokens[MAX_IMAGES_PER_MESSAGE..])
+                .expect("last image")
+                .len(),
+            1
+        );
     }
 
     #[test]
-    fn discarding_removes_the_staged_file() {
-        let (_directory, store) = store();
-        let staged = store.store(PIXEL).expect("stored");
+    fn discarding_makes_only_selected_tokens_unavailable() {
+        let store = AttachmentStore::new();
+        let discarded = store.store(PIXEL).expect("stored");
+        let retained = store.store(PIXEL).expect("stored");
 
-        store.discard(std::slice::from_ref(&staged.token));
+        store.discard(&[
+            discarded.token.clone(),
+            discarded.token.clone(),
+            "missing".to_owned(),
+        ]);
 
-        assert!(store.take(&[staged.token]).is_err());
-        assert_eq!(std::fs::read_dir(store.root()).expect("dir").count(), 0);
+        assert!(store.take(&[discarded.token]).is_err());
+        assert_eq!(store.take(&[retained.token]).expect("retained").len(), 1);
     }
 
     #[test]
-    fn sweeping_removes_files_the_database_does_not_reference() {
-        let (_directory, store) = store();
-        let database = Database::open_in_memory().expect("database");
-        let staged = store.store(PIXEL).expect("stored");
-        let orphan = store.root().join("orphan.png");
+    fn taking_deduplicates_tokens_and_preserves_requested_order() {
+        let store = AttachmentStore::new();
+        let first = store.store(PIXEL).expect("stored");
+        let second = store.store(PIXEL).expect("stored");
+        let files = store
+            .take(&[
+                second.token.clone(),
+                first.token.clone(),
+                second.token.clone(),
+            ])
+            .expect("taken");
 
-        std::fs::write(&orphan, b"leftover").expect("orphan");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].meta.token, second.token);
+        assert_eq!(files[1].meta.token, first.token);
+        assert!(store.take(&[first.token]).is_err());
+        assert!(store.take(&[second.token]).is_err());
+    }
 
-        let removed = store.sweep(&database).expect("sweep");
+    #[test]
+    fn invalid_take_preserves_every_valid_token() {
+        let store = AttachmentStore::new();
+        let first = store.store(PIXEL).expect("stored");
+        let second = store.store(PIXEL).expect("stored");
 
-        assert_eq!(removed, 1);
-        assert!(!orphan.exists());
-        assert!(store.root().join(format!("{}.png", staged.token)).exists());
+        let error = store
+            .take(&[
+                first.token.clone(),
+                "missing".to_owned(),
+                second.token.clone(),
+            ])
+            .expect_err("missing token");
+
+        assert_eq!(error.code(), "AttachmentRejected");
+        let files = store
+            .take(&[first.token, second.token])
+            .expect("valid tokens retained");
+        assert_eq!(files.len(), 2);
+        assert!(
+            files
+                .iter()
+                .all(|file| image_data_url(&file.data, &file.meta.mime) == PIXEL)
+        );
     }
 
     #[test]
     fn data_urls_round_trip_the_stored_image() {
-        let (_directory, store) = store();
+        let store = AttachmentStore::new();
         let staged = store.store(PIXEL).expect("stored");
         let files = store.take(&[staged.token]).expect("taken");
-        let url = file_data_url(&files[0].path, &files[0].meta.mime).expect("url");
 
-        assert_eq!(url, PIXEL);
+        assert_eq!(image_data_url(&files[0].data, &files[0].meta.mime), PIXEL);
+    }
+
+    #[test]
+    fn image_data_urls_encode_binary_bytes_without_io() {
+        assert_eq!(
+            image_data_url(&[0, 1, 2, 253, 254, 255], "image/webp"),
+            "data:image/webp;base64,AAEC/f7/"
+        );
+        assert_eq!(image_data_url(&[], "image/png"), "data:image/png;base64,");
+    }
+
+    #[test]
+    fn enforces_the_inclusive_five_megabyte_limit() {
+        let store = AttachmentStore::new();
+        let mut data = vec![0; MAX_IMAGE_BYTES];
+        data[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        let staged = store
+            .store(&image_data_url(&data, "image/png"))
+            .expect("maximum image");
+
+        assert_eq!(staged.bytes, MAX_IMAGE_BYTES as u64);
+        data.push(0);
+        assert_eq!(
+            store
+                .store(&image_data_url(&data, "image/png"))
+                .expect_err("oversized")
+                .code(),
+            "AttachmentRejected"
+        );
+        assert_eq!(
+            store.take(&[staged.token]).expect("maximum image retained")[0]
+                .data
+                .len(),
+            MAX_IMAGE_BYTES
+        );
+    }
+
+    #[test]
+    fn sniffs_supported_formats_instead_of_trusting_declared_mime() {
+        let store = AttachmentStore::new();
+
+        for (data, mime, dimensions) in [
+            (
+                &b"GIF89a\x02\x00\x03\x00"[..],
+                "image/gif",
+                (Some(2), Some(3)),
+            ),
+            (
+                &b"RIFF\x05\x00\x00\x00WEBPx"[..],
+                "image/webp",
+                (None, None),
+            ),
+        ] {
+            let staged = store
+                .store(&image_data_url(data, "image/png"))
+                .expect("sniffed");
+
+            assert_eq!(staged.mime, mime);
+            assert_eq!((staged.width, staged.height), dimensions);
+            assert_eq!(store.take(&[staged.token]).expect("taken")[0].data, data);
+        }
+    }
+
+    #[test]
+    fn empty_take_and_discard_preserve_available_images() {
+        let store = AttachmentStore::new();
+        let staged = store.store(PIXEL).expect("stored");
+
+        assert!(store.take(&[]).expect("empty take").is_empty());
+        store.discard(&[]);
+        assert_eq!(store.take(&[staged.token]).expect("retained").len(), 1);
+    }
+
+    #[test]
+    fn unavailable_tokens_cannot_consume_other_staged_images() {
+        let store = AttachmentStore::new();
+        let consumed = store.store(PIXEL).expect("stored");
+        let discarded = store.store(PIXEL).expect("stored");
+        let retained = store.store(PIXEL).expect("stored");
+        store
+            .take(std::slice::from_ref(&consumed.token))
+            .expect("consumed");
+        store.discard(std::slice::from_ref(&discarded.token));
+
+        assert!(
+            store
+                .take(&[retained.token.clone(), consumed.token])
+                .is_err()
+        );
+        assert!(
+            store
+                .take(&[retained.token.clone(), discarded.token])
+                .is_err()
+        );
+        assert_eq!(store.take(&[retained.token]).expect("retained").len(), 1);
+    }
+
+    #[test]
+    fn staged_bytes_are_independent_of_subsequent_source_replacement() {
+        let directory = tempfile::tempdir().expect("temporary sources");
+        let source = directory.path().join("source.png");
+        let original = STANDARD
+            .decode(PIXEL.split_once(',').expect("payload").1)
+            .expect("png");
+        std::fs::write(&source, &original).expect("source");
+        let store = AttachmentStore::new();
+        let staged = store
+            .store(&image_data_url(
+                &std::fs::read(&source).expect("import"),
+                "image/png",
+            ))
+            .expect("stored");
+        std::fs::write(&source, b"replacement source").expect("replace source");
+
+        let files = store.take(&[staged.token]).expect("taken");
+
+        assert_eq!(files[0].data, original);
+        assert_eq!(
+            std::fs::read(&source).expect("untouched replacement"),
+            b"replacement source"
+        );
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .expect("sources")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn staging_taking_discarding_and_dropping_do_not_modify_source_files() {
+        let directory = tempfile::tempdir().expect("temporary sources");
+        let project = directory.path().join("project");
+        let source = directory.path().join("att-123-1.png");
+        let imported = project.join("imported-source.png");
+        std::fs::create_dir(&project).expect("project");
+        std::fs::write(&source, b"external source").expect("external source");
+        std::fs::write(&imported, b"imported source").expect("imported source");
+
+        {
+            let store = AttachmentStore::new();
+            let taken = store.store(PIXEL).expect("stored");
+            let discarded = store.store(PIXEL).expect("stored");
+            let _dropped = store.store(PIXEL).expect("stored");
+            store.take(&[taken.token]).expect("taken");
+            store.discard(&[
+                discarded.token,
+                source.to_string_lossy().into_owned(),
+                imported.to_string_lossy().into_owned(),
+            ]);
+        }
+
+        assert_eq!(
+            std::fs::read(&source).expect("external source"),
+            b"external source"
+        );
+        assert_eq!(
+            std::fs::read(&imported).expect("imported source"),
+            b"imported source"
+        );
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .expect("sources")
+                .count(),
+            2
+        );
+        assert_eq!(
+            std::fs::read_dir(project).expect("project sources").count(),
+            1
+        );
     }
 }

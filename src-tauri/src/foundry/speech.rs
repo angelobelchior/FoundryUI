@@ -353,8 +353,7 @@ pub fn microphone_permission() -> MicrophonePermission {
 }
 
 pub async fn transcribe(
-    client: &reqwest::Client,
-    endpoint: &str,
+    endpoint: &super::local_inference::VerifiedLocalEndpoint,
     model: &str,
     file: &Path,
     language: Option<&str>,
@@ -387,21 +386,20 @@ pub async fn transcribe(
         form = form.text("language", language.to_string());
     }
 
-    let url = format!("{}/v1/audio/transcriptions", endpoint.trim_end_matches('/'));
-    let response = client
-        .post(&url)
-        .multipart(form)
-        .timeout(Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECONDS))
-        .send()
+    let response = endpoint
+        .post_multipart(
+            "/v1/audio/transcriptions",
+            form,
+            Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECONDS),
+        )
         .await
-        .map_err(transport_error)?;
+        .map_err(super::http::local_inference_error)?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
 
     if !status.is_success() {
         if expects_json_contract_error(status, &body) {
-            return transcribe_json_contract(client, &url, model, file, language, temperature)
-                .await;
+            return transcribe_json_contract(endpoint, model, file, language, temperature).await;
         }
 
         return Err(transcription_http_error(status, &body, model));
@@ -411,8 +409,7 @@ pub async fn transcribe(
 }
 
 async fn transcribe_json_contract(
-    client: &reqwest::Client,
-    url: &str,
+    endpoint: &super::local_inference::VerifiedLocalEndpoint,
     model: &str,
     file: &Path,
     language: Option<&str>,
@@ -429,13 +426,14 @@ async fn transcribe_json_contract(
         request["language"] = serde_json::Value::String(language.to_string());
     }
 
-    let response = client
-        .post(url)
-        .json(&request)
-        .timeout(Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECONDS))
-        .send()
+    let response = endpoint
+        .post_json(
+            "/v1/audio/transcriptions",
+            &request,
+            Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECONDS),
+        )
         .await
-        .map_err(transport_error)?;
+        .map_err(super::http::local_inference_error)?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
 
@@ -1181,23 +1179,6 @@ fn transcription_http_error(
     }
 }
 
-fn transport_error(error: reqwest::Error) -> FoundryError {
-    if error.is_connect() {
-        FoundryError::ServerUnreachable {
-            detail: error.to_string(),
-        }
-    } else if error.is_timeout() {
-        FoundryError::Timeout {
-            stage: "transcription".to_string(),
-            seconds: TRANSCRIPTION_TIMEOUT_SECONDS,
-        }
-    } else {
-        FoundryError::BadResponse {
-            detail: error.to_string(),
-        }
-    }
-}
-
 fn recording_error(error: cpal::Error) -> FoundryError {
     FoundryError::RecordingFailed {
         detail: error.to_string(),
@@ -1531,17 +1512,10 @@ mod tests {
 
         fs::write(&file, wav_bytes(&vec![0_i16; 16_000], 16_000)).expect("audio");
 
-        let client = reqwest::Client::new();
-        let payload = transcribe(
-            &client,
-            &format!("http://{address}"),
-            "whisper-tiny",
-            &file,
-            Some("en"),
-            0.0,
-        )
-        .await
-        .expect("transcription");
+        let endpoint = verified_fixture_endpoint(&format!("http://{address}"));
+        let payload = transcribe(&endpoint, "whisper-tiny", &file, Some("en"), 0.0)
+            .await
+            .expect("transcription");
 
         assert_eq!(payload.text, "hello there");
         assert_eq!(payload.language.as_deref(), Some("en"));
@@ -1570,18 +1544,31 @@ mod tests {
 
         fs::write(&file, wav_bytes(&[0_i16; 1_600], 16_000)).expect("audio");
 
-        let error = transcribe(
-            &reqwest::Client::new(),
-            &format!("http://{address}"),
-            "whisper-tiny",
-            &file,
-            None,
-            0.0,
-        )
-        .await
-        .expect_err("missing model");
+        let endpoint = verified_fixture_endpoint(&format!("http://{address}"));
+        let error = transcribe(&endpoint, "whisper-tiny", &file, None, 0.0)
+            .await
+            .expect_err("missing model");
 
         assert_eq!(error.code(), "ModelNotLoaded");
         server.join().expect("server");
+    }
+
+    fn verified_fixture_endpoint(
+        endpoint: &str,
+    ) -> super::super::local_inference::VerifiedLocalEndpoint {
+        use super::super::local_inference::{
+            RuntimeBinding, RuntimeObservation, VerifiedLocalEndpoint,
+        };
+        let binding = RuntimeBinding::default();
+        binding.replace(Some(
+            RuntimeObservation::new(
+                endpoint,
+                std::process::id(),
+                std::env::current_exe().expect("test executable"),
+                1,
+            )
+            .expect("fixture observation"),
+        ));
+        VerifiedLocalEndpoint::verify(&binding).expect("native fixture proof")
     }
 }

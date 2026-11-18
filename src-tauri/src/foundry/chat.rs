@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -10,14 +9,13 @@ use serde_json::{Value, json};
 use tauri::ipc::Channel;
 use tokio::sync::watch;
 
-use super::attachments::file_data_url;
 use super::db::{
     Attachment, ChatMessage, Conversation, Database, MessageRole, MessageStatus, StreamBuffer,
     TokenUsage,
 };
 use super::error::{FoundryError, FoundryResult};
 use super::harmony::HarmonyStream;
-use super::http::{StreamTimeouts, await_between_tokens, await_first_token, build_client_with};
+use super::http::{StreamTimeouts, await_between_tokens, await_first_token};
 use super::jobs::now_millis;
 
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -253,6 +251,23 @@ impl GenerationRegistry {
         }
     }
 
+    pub fn with_idle_conversations<T>(
+        &self,
+        ids: &[i64],
+        operation: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let running = lock(&self.running);
+        if running
+            .values()
+            .any(|generation| ids.contains(&generation.conversation_id))
+        {
+            return None;
+        }
+        let result = operation();
+        drop(running);
+        Some(result)
+    }
+
     fn finish(&self, request_id: &str) {
         lock(&self.running).remove(request_id);
     }
@@ -271,7 +286,7 @@ impl StreamSink for Channel<StreamEvent> {
 pub struct GenerationContext {
     pub request_id: String,
     pub database: Arc<Database>,
-    pub endpoint: String,
+    pub endpoint: super::local_inference::VerifiedLocalEndpoint,
     pub model_id: String,
     pub conversation: Conversation,
     pub user_message: ChatMessage,
@@ -459,20 +474,27 @@ async fn stream_completion<S: StreamSink>(
         Ok(history) => history,
         Err(error) => return cancelled_or_failed(&mut cancellation, error, &buffer, usage),
     };
-    let messages: Vec<Value> = history
+    let messages = history
         .iter()
         .filter(|message| message.content.trim() != "" || !message.attachments.is_empty())
         .map(|message| {
-            json!({
-                "role": match message.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::Divider => "system",
-                },
-                "content": message_content(message),
+            message_content(&context.database, message).map(|content| {
+                json!({
+                    "role": match message.role {
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                        MessageRole::Divider => "system",
+                    },
+                    "content": content,
+                })
             })
         })
-        .collect();
+        .collect::<FoundryResult<Vec<Value>>>();
+    let messages = match messages {
+        Ok(messages) => messages,
+        Err(error) => return cancelled_or_failed(&mut cancellation, error, &buffer, usage),
+    };
+
     let mut payload = json!({
         "model": context.model_id,
         "messages": messages,
@@ -484,12 +506,11 @@ async fn stream_completion<S: StreamSink>(
         params.apply(&mut payload);
     }
 
-    let client = build_client_with(context.timeouts.connect);
-    let url = format!(
-        "{}/v1/chat/completions",
-        context.endpoint.trim_end_matches('/')
+    let request = context.endpoint.post_json_stream(
+        "/v1/chat/completions",
+        &payload,
+        context.timeouts.first_token,
     );
-    let request = client.post(url).json(&payload).send();
 
     let response = match with_cancel(&mut cancellation, request).await {
         None => {
@@ -500,7 +521,11 @@ async fn stream_completion<S: StreamSink>(
             });
         }
         Some(Err(error)) => {
-            return Err(failed(transport_error(error), &buffer, usage));
+            return Err(failed(
+                super::http::local_inference_error(error),
+                &buffer,
+                usage,
+            ));
         }
         Some(Ok(response)) => response,
     };
@@ -706,7 +731,7 @@ fn drain_harmony<S: StreamSink>(
     }
 }
 
-fn message_content(message: &ChatMessage) -> Value {
+fn message_content(database: &Database, message: &ChatMessage) -> FoundryResult<Value> {
     let images: Vec<&Attachment> = message
         .attachments
         .iter()
@@ -714,7 +739,7 @@ fn message_content(message: &ChatMessage) -> Value {
         .collect();
 
     if images.is_empty() {
-        return Value::String(message.content.clone());
+        return Ok(Value::String(message.content.clone()));
     }
 
     let mut parts = Vec::new();
@@ -724,12 +749,11 @@ fn message_content(message: &ChatMessage) -> Value {
     }
 
     for image in images {
-        if let Ok(url) = file_data_url(Path::new(&image.path), &image.mime) {
-            parts.push(json!({"type": "image_url", "image_url": {"url": url}}));
-        }
+        let url = database.attachment_data(image.id)?;
+        parts.push(json!({"type": "image_url", "image_url": {"url": url}}));
     }
 
-    Value::Array(parts)
+    Ok(Value::Array(parts))
 }
 
 fn report_usage<S: StreamSink>(
@@ -881,23 +905,6 @@ fn is_missing_model(detail: &str) -> bool {
     let lower = detail.to_lowercase();
 
     lower.contains("model not found") || lower.contains("no model matching")
-}
-
-fn transport_error(error: reqwest::Error) -> FoundryError {
-    if error.is_connect() {
-        FoundryError::ServerUnreachable {
-            detail: error.to_string(),
-        }
-    } else if error.is_timeout() {
-        FoundryError::Timeout {
-            stage: "request".to_string(),
-            seconds: super::http::CONNECT_TIMEOUT.as_secs(),
-        }
-    } else {
-        FoundryError::BadResponse {
-            detail: error.to_string(),
-        }
-    }
 }
 
 fn stream_transport_error(error: reqwest::Error, idle_seconds: u64) -> FoundryError {
@@ -1101,7 +1108,7 @@ mod tests {
 
     fn test_context(
         database: Arc<Database>,
-        endpoint: &str,
+        endpoint: super::super::local_inference::VerifiedLocalEndpoint,
         cancel_after_delta: bool,
     ) -> (GenerationContext, Collector) {
         let conversation = database
@@ -1143,7 +1150,7 @@ mod tests {
             GenerationContext {
                 request_id,
                 database,
-                endpoint: endpoint.to_string(),
+                endpoint,
                 model_id: "qwen3-0.6b-generic-gpu:2".to_string(),
                 conversation,
                 user_message,
@@ -1180,8 +1187,8 @@ mod tests {
         });
 
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (context, collector) =
-            test_context(database.clone(), &format!("http://{address}"), false);
+        let endpoint = verified_fixture_endpoint(&format!("http://{address}"));
+        let (context, collector) = test_context(database.clone(), endpoint, false);
         let message_id = context.assistant_message.id;
 
         run_generation(context, collector.clone()).await;
@@ -1200,9 +1207,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_session_change_blocks_chat_history_before_the_request() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener.set_nonblocking(true).expect("nonblocking");
+        let revision = Arc::new(AtomicU64::new(1));
+        let endpoint = verified_fixture_endpoint(&format!(
+            "http://{}",
+            listener.local_addr().expect("address")
+        ))
+        .bind_session(revision.clone(), 1);
+        let database = Arc::new(Database::open_in_memory().expect("database"));
+        let (context, collector) = test_context(database.clone(), endpoint, false);
+        let message_id = context.assistant_message.id;
+        revision.store(2, Ordering::SeqCst);
+
+        run_generation(context, collector.clone()).await;
+
+        assert_eq!(
+            database.message(message_id).expect("message").status,
+            MessageStatus::Error
+        );
+        assert!(collector.events.lock().unwrap().iter().any(|event| matches!(event, StreamEvent::Error { error, .. } if error.code() == "CommandFailed")));
+        assert_eq!(
+            listener.accept().expect_err("no request").kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[tokio::test]
     async fn an_unreachable_server_reports_a_clear_error() {
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (context, collector) = test_context(database.clone(), "http://127.0.0.1:1", false);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let endpoint = verified_fixture_endpoint(&format!(
+            "http://{}",
+            listener.local_addr().expect("address")
+        ));
+        drop(listener);
+        let (context, collector) = test_context(database.clone(), endpoint, false);
         let message_id = context.assistant_message.id;
 
         run_generation(context, collector.clone()).await;
@@ -1213,7 +1256,7 @@ mod tests {
             _ => None,
         });
 
-        assert_eq!(error.expect("error event").code(), "ServerUnreachable");
+        assert_eq!(error.expect("error event").code(), "CommandFailed");
         assert_eq!(
             database.message(message_id).expect("message").status,
             MessageStatus::Error
@@ -1228,14 +1271,14 @@ mod tests {
 
         let cli = CliBackend::detect().expect("foundry CLI");
         let status = cli.server_status().await.expect("server status");
-        let endpoint = status.endpoint().expect("running server").to_string();
+        let endpoint = verified_live_endpoint(&cli, &status);
         let loaded = cli.list_loaded_models().await.expect("loaded models");
         let model = loaded
             .iter()
             .find(|model| model.alias == "qwen3-0.6b")
             .expect("qwen3-0.6b is loaded");
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), &endpoint, false);
+        let (mut context, collector) = test_context(database.clone(), endpoint, false);
         let message_id = context.assistant_message.id;
 
         context.model_id = model.id.clone();
@@ -1274,14 +1317,14 @@ mod tests {
 
         let cli = CliBackend::detect().expect("foundry CLI");
         let status = cli.server_status().await.expect("server status");
-        let endpoint = status.endpoint().expect("running server").to_string();
+        let endpoint = verified_live_endpoint(&cli, &status);
         let loaded = cli.list_loaded_models().await.expect("loaded models");
         let model = loaded
             .iter()
             .find(|model| model.alias == "gpt-oss-20b")
             .expect("gpt-oss-20b is loaded");
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), &endpoint, false);
+        let (mut context, collector) = test_context(database.clone(), endpoint, false);
         let message_id = context.assistant_message.id;
 
         context.model_id = model.id.clone();
@@ -1319,14 +1362,14 @@ mod tests {
 
         let cli = CliBackend::detect().expect("foundry CLI");
         let status = cli.server_status().await.expect("server status");
-        let endpoint = status.endpoint().expect("running server").to_string();
+        let endpoint = verified_live_endpoint(&cli, &status);
         let loaded = cli.list_loaded_models().await.expect("loaded models");
         let model = loaded
             .iter()
             .find(|model| model.alias == "qwen3-0.6b")
             .expect("qwen3-0.6b is loaded");
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), &endpoint, true);
+        let (mut context, collector) = test_context(database.clone(), endpoint, true);
         let message_id = context.assistant_message.id;
 
         context.model_id = model.id.clone();
@@ -1348,6 +1391,38 @@ mod tests {
         let stored = database.message(message_id).expect("stored message");
         assert_eq!(stored.status, MessageStatus::Cancelled);
         assert_eq!(stored.content, done.content);
+    }
+
+    fn verified_fixture_endpoint(
+        endpoint: &str,
+    ) -> super::super::local_inference::VerifiedLocalEndpoint {
+        use super::super::local_inference::{
+            RuntimeBinding, RuntimeObservation, VerifiedLocalEndpoint,
+        };
+        let binding = RuntimeBinding::default();
+        binding.replace(Some(
+            RuntimeObservation::new(
+                endpoint,
+                std::process::id(),
+                std::env::current_exe().expect("test executable"),
+                1,
+            )
+            .expect("fixture observation"),
+        ));
+        VerifiedLocalEndpoint::verify(&binding).expect("native fixture proof")
+    }
+
+    fn verified_live_endpoint(
+        cli: &super::super::cli::CliBackend,
+        status: &super::super::json::ServerStatus,
+    ) -> super::super::local_inference::VerifiedLocalEndpoint {
+        super::super::local_inference::verify_foundry_endpoint(
+            std::path::Path::new(&cli.info().path),
+            status.pid.expect("runtime PID"),
+            status.endpoint().expect("running server"),
+            std::time::Duration::from_secs(5),
+        )
+        .expect("verified Foundry runtime")
     }
 
     fn sample_message(content: &str, attachments: Vec<Attachment>) -> ChatMessage {
@@ -1372,33 +1447,41 @@ mod tests {
     #[test]
     fn message_content_is_text_without_images_and_parts_with_them() {
         let text = sample_message("hello", Vec::new());
+        let database = Database::open_in_memory().expect("database");
 
-        assert_eq!(message_content(&text), json!("hello"));
-
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("image.png");
-
-        std::fs::write(&path, b"\x89PNG\r\n\x1a\n").expect("write");
-
-        let image = Attachment {
-            id: 1,
-            message_id: 1,
-            kind: "image".to_string(),
-            mime: "image/png".to_string(),
-            path: path.to_string_lossy().to_string(),
-            bytes: 8,
-            width: None,
-            height: None,
-        };
-        let parts = message_content(&sample_message("describe", vec![image]));
+        assert_eq!(
+            message_content(&database, &text).expect("text"),
+            json!("hello")
+        );
+        let conversation = database
+            .create_conversation("fixture-model")
+            .expect("conversation");
+        let message = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "describe",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("message");
+        let store = super::super::attachments::AttachmentStore::new();
+        let staged = store
+            .store("data:image/png;base64,iVBORw0KGgo=")
+            .expect("image");
+        let staged = store.take(&[staged.token]).expect("staged copy").remove(0);
+        database
+            .add_attachment(message.id, "image", &staged)
+            .expect("persist copy");
+        let message = database.message(message.id).expect("persisted message");
+        let parts = message_content(&database, &message).expect("content");
         let array = parts.as_array().expect("parts");
 
         assert_eq!(array[0], json!({"type": "text", "text": "describe"}));
-        assert!(
-            array[1]["image_url"]["url"]
-                .as_str()
-                .expect("url")
-                .starts_with("data:image/png;base64,")
+        assert_eq!(
+            array[1]["image_url"]["url"],
+            "data:image/png;base64,iVBORw0KGgo="
         );
     }
 
@@ -1415,7 +1498,7 @@ mod tests {
 
         let cli = CliBackend::detect().expect("foundry CLI");
         let status = cli.server_status().await.expect("server status");
-        let endpoint = status.endpoint().expect("running server").to_string();
+        let endpoint = verified_live_endpoint(&cli, &status);
         let loaded = cli.list_loaded_models().await.expect("loaded models");
         let model = loaded
             .iter()
@@ -1455,7 +1538,7 @@ mod tests {
                         width: Some(1),
                         height: Some(1),
                     },
-                    path,
+                    data: pixel,
                 },
             )
             .expect("attachment");
@@ -1482,7 +1565,11 @@ mod tests {
             .expect("stored user message");
 
         assert_eq!(user_message.attachments.len(), 1);
-        assert!(message_content(&user_message).is_array());
+        assert!(
+            message_content(&database, &user_message)
+                .expect("content")
+                .is_array()
+        );
 
         let context = GenerationContext {
             request_id,

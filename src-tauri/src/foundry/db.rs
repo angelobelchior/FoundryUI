@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
-use super::attachments::StagedFile;
+use super::attachments::{MAX_IMAGE_BYTES, StagedAttachment, StagedFile, image_data_url};
 use super::chat::ChatParams;
 use super::error::{FoundryError, FoundryResult};
 use super::jobs::now_millis;
@@ -918,7 +918,43 @@ impl Database {
         attachments: &[Attachment],
     ) -> FoundryResult<(Vec<i64>, ChatMessage)> {
         let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let retained = attachments
+            .iter()
+            .map(|reference| {
+                transaction
+                    .query_row(
+                        "SELECT a.kind, a.mime, a.bytes, a.width, a.height, p.data
+                         FROM attachments a
+                         JOIN messages m ON m.id = a.message_id
+                         JOIN agent_attachment_payloads p ON p.attachment_id = a.id
+                         WHERE a.id = ?1 AND m.conversation_id = ?2 AND m.seq = ?3 AND m.role = 'user'",
+                        params![reference.id, conversation_id, seq],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                StagedFile {
+                                    meta: StagedAttachment {
+                                        token: String::new(),
+                                        mime: row.get(1)?,
+                                        bytes: row.get(2)?,
+                                        width: row.get(3)?,
+                                        height: row.get(4)?,
+                                    },
+                                    data: row.get(5)?,
+                                },
+                            ))
+                        },
+                    )
+                    .optional()
+                    .map_err(storage)?
+                    .ok_or_else(|| FoundryError::AttachmentRejected {
+                        reason: "retained image is unavailable for the edited prompt".to_string(),
+                    })
+            })
+            .collect::<FoundryResult<Vec<_>>>()?;
         let removed = {
             let mut statement = transaction
                 .prepare(
@@ -953,24 +989,8 @@ impl Database {
             .map_err(storage)?;
         let message_id = transaction.last_insert_rowid();
 
-        for attachment in attachments {
-            transaction
-                .execute(
-                    "INSERT INTO attachments
-                       (message_id, kind, mime, path, bytes, width, height, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        message_id,
-                        attachment.kind,
-                        attachment.mime,
-                        attachment.path,
-                        attachment.bytes as i64,
-                        attachment.width,
-                        attachment.height,
-                        now
-                    ],
-                )
-                .map_err(storage)?;
+        for (kind, copied) in &retained {
+            insert_attachment_copy(&transaction, message_id, kind, copied)?;
         }
 
         transaction
@@ -1049,31 +1069,29 @@ impl Database {
         kind: &str,
         staged: &StagedFile,
     ) -> FoundryResult<Attachment> {
-        let path = staged.path.to_string_lossy().to_string();
-        let connection = self.connection();
-
-        connection
-            .execute(
-                "INSERT INTO attachments
-                   (message_id, kind, mime, path, bytes, width, height, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    message_id,
-                    kind,
-                    staged.meta.mime,
-                    path,
-                    staged.meta.bytes as i64,
-                    staged.meta.width,
-                    staged.meta.height,
-                    now_millis()
-                ],
-            )
+        let mut connection = self.connection();
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(storage)?;
-        let id = connection.last_insert_rowid();
+        let attachment = insert_attachment_copy(&transaction, message_id, kind, staged)?;
+        transaction.commit().map_err(storage)?;
+        Ok(attachment)
+    }
 
-        drop(connection);
-
-        self.attachment(id)
+    pub fn attachment_data(&self, id: i64) -> FoundryResult<String> {
+        let connection = self.connection();
+        let (mime, data): (String, Vec<u8>) = connection
+            .query_row(
+                "SELECT a.mime, p.data FROM attachments a
+                 JOIN agent_attachment_payloads p ON p.attachment_id = a.id
+                 WHERE a.id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(storage)?
+            .ok_or_else(|| storage(format!("attachment {id} does not exist")))?;
+        Ok(image_data_url(&data, &mime))
     }
 
     pub fn attachment(&self, id: i64) -> FoundryResult<Attachment> {
@@ -1848,6 +1866,64 @@ impl Database {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+fn insert_attachment_copy(
+    transaction: &rusqlite::Transaction<'_>,
+    message_id: i64,
+    kind: &str,
+    staged: &StagedFile,
+) -> FoundryResult<Attachment> {
+    if staged.data.is_empty()
+        || staged.data.len() > MAX_IMAGE_BYTES
+        || staged.meta.bytes != staged.data.len() as u64
+        || kind != "image"
+        || !matches!(
+            staged.meta.mime.as_str(),
+            "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        )
+    {
+        return Err(FoundryError::AttachmentRejected {
+            reason: "invalid copied image payload".to_string(),
+        });
+    }
+    transaction
+        .execute(
+            "INSERT INTO attachments
+               (message_id, kind, mime, path, bytes, width, height, created_at)
+             VALUES (?1, ?2, ?3, '', ?4, ?5, ?6, ?7)",
+            params![
+                message_id,
+                kind,
+                staged.meta.mime,
+                staged.meta.bytes as i64,
+                staged.meta.width,
+                staged.meta.height,
+                now_millis()
+            ],
+        )
+        .map_err(storage)?;
+    let id = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "UPDATE attachments SET path = ?1 WHERE id = ?2",
+            params![format!("attachment:{id}"), id],
+        )
+        .map_err(storage)?;
+    transaction
+        .execute(
+            "INSERT INTO agent_attachment_payloads (attachment_id, data) VALUES (?1, ?2)",
+            params![id, staged.data.as_slice()],
+        )
+        .map_err(storage)?;
+    transaction
+        .query_row(
+            "SELECT id, message_id, kind, mime, path, bytes, width, height
+             FROM attachments WHERE id = ?1",
+            [id],
+            attachment_from_row,
+        )
+        .map_err(storage)
 }
 
 fn params_json(params: &ChatParams) -> String {
@@ -2936,7 +3012,7 @@ mod tests {
                         width: Some(1),
                         height: Some(1),
                     },
-                    path: image,
+                    data: std::fs::read(&image).expect("copied image"),
                 },
             )
             .expect("attachment");
@@ -2975,8 +3051,621 @@ mod tests {
 
         assert_eq!(page.messages[0].attachments.len(), 1);
         assert_eq!(page.messages[0].attachments[0].mime, "image/png");
+        let attachment = &page.messages[0].attachments[0];
+        assert_eq!(attachment.path, format!("attachment:{}", attachment.id));
+        assert_eq!(
+            reopened
+                .attachment_data(attachment.id)
+                .expect("stored bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert_eq!(
+            std::fs::read(&image).expect("source image"),
+            b"\x89PNG\r\n\x1a\n"
+        );
         assert_eq!(params.temperature.value, Some(0.3));
         assert_eq!(params.temperature.origin, ParamOrigin::Conversation);
+    }
+
+    #[test]
+    fn replacing_an_image_prompt_preserves_payloads_with_new_canonical_ids_after_restart() {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("foundryui.sqlite3");
+        let database = Database::open(&path).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let prompt = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "Original image prompt",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("prompt");
+        let attachment = database
+            .add_attachment(
+                prompt.id,
+                "image",
+                &StagedFile {
+                    meta: StagedAttachment {
+                        token: "copied".to_string(),
+                        mime: "image/png".to_string(),
+                        bytes: 8,
+                        width: Some(1),
+                        height: Some(1),
+                    },
+                    data: b"\x89PNG\r\n\x1a\n".to_vec(),
+                },
+            )
+            .expect("image");
+        let reply = database
+            .append_message(
+                conversation.id,
+                MessageRole::Assistant,
+                "Old answer",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("reply");
+        let original = database.message(prompt.id).expect("original prompt");
+        let (removed, replacement) = database
+            .replace_from(
+                conversation.id,
+                prompt.seq,
+                "Edited image prompt",
+                "fixture",
+                &original.attachments,
+            )
+            .expect("replace prompt");
+        assert_eq!(removed, vec![prompt.id, reply.id]);
+        assert_eq!(replacement.attachments.len(), 1);
+        let copied = &replacement.attachments[0];
+        assert_eq!(
+            database
+                .attachment_data(copied.id)
+                .expect("retained image bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert_ne!(copied.id, attachment.id);
+        assert_eq!(copied.path, format!("attachment:{}", copied.id));
+        assert_eq!(copied.message_id, replacement.id);
+        assert_eq!(
+            (copied.bytes, copied.width, copied.height),
+            (8, Some(1), Some(1))
+        );
+        assert!(database.attachment(attachment.id).is_err());
+        assert!(database.attachment_data(attachment.id).is_err());
+        let copied_id = copied.id;
+        drop(database);
+        let reopened = Database::open(&path).expect("reopen");
+        let restored = reopened.message(replacement.id).expect("edited prompt");
+        assert_eq!(restored.content, "Edited image prompt");
+        assert_eq!(restored.attachments[0].id, copied_id);
+        assert_eq!(
+            restored.attachments[0].path,
+            format!("attachment:{copied_id}")
+        );
+        assert_eq!(
+            reopened
+                .attachment_data(copied_id)
+                .expect("persisted retained bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert!(reopened.attachment_data(attachment.id).is_err());
+    }
+
+    #[test]
+    fn replacing_an_image_prompt_uses_stored_metadata_instead_of_modified_attachment_dtos() {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let database = Database::open(&directory.path().join("foundryui.sqlite3")).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let prompt = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "Original",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("prompt");
+        let attachment = database
+            .add_attachment(
+                prompt.id,
+                "image",
+                &StagedFile {
+                    meta: StagedAttachment {
+                        token: "copied".to_string(),
+                        mime: "image/png".to_string(),
+                        bytes: 8,
+                        width: Some(1),
+                        height: Some(2),
+                    },
+                    data: b"\x89PNG\r\n\x1a\n".to_vec(),
+                },
+            )
+            .expect("image");
+        let mut modified = attachment.clone();
+        modified.message_id = -1;
+        modified.kind = "external".to_string();
+        modified.mime = "text/html".to_string();
+        modified.path = "/project/not-an-attachment.png".to_string();
+        modified.bytes = u64::MAX;
+        modified.width = Some(999);
+        modified.height = Some(999);
+        let (_, replacement) = database
+            .replace_from(
+                conversation.id,
+                prompt.seq,
+                "Edited",
+                "fixture",
+                &[modified],
+            )
+            .expect("replace with trusted stored image");
+        let retained = &replacement.attachments[0];
+        assert_eq!(retained.kind, "image");
+        assert_eq!(retained.mime, "image/png");
+        assert_eq!(
+            (retained.bytes, retained.width, retained.height),
+            (8, Some(1), Some(2))
+        );
+        assert_eq!(retained.message_id, replacement.id);
+        assert_ne!(retained.id, attachment.id);
+        assert_eq!(retained.path, format!("attachment:{}", retained.id));
+        assert_eq!(
+            database.attachment_data(retained.id).expect("stored bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+    }
+
+    #[test]
+    fn replacing_an_image_prompt_rejects_missing_foreign_and_other_message_images_without_erasing_history()
+     {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("foundryui.sqlite3");
+        let database = Database::open(&path).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let foreign = database
+            .create_conversation("fixture")
+            .expect("foreign conversation");
+        let removed = database
+            .create_conversation("fixture")
+            .expect("removed conversation");
+        let copied = StagedFile {
+            meta: StagedAttachment {
+                token: "copied".to_string(),
+                mime: "image/png".to_string(),
+                bytes: 8,
+                width: None,
+                height: None,
+            },
+            data: b"\x89PNG\r\n\x1a\n".to_vec(),
+        };
+        let mut messages = Vec::new();
+        let mut attachments = Vec::new();
+        for id in [conversation.id, conversation.id, foreign.id, removed.id] {
+            let message = database
+                .append_message(
+                    id,
+                    MessageRole::User,
+                    "Keep original history",
+                    "",
+                    None,
+                    MessageStatus::Complete,
+                )
+                .expect("prompt");
+            attachments.push(
+                database
+                    .add_attachment(message.id, "image", &copied)
+                    .expect("image"),
+            );
+            messages.push(message);
+        }
+        database
+            .delete_conversation(removed.id)
+            .expect("remove stale image owner");
+        for original_invalid in &attachments[1..] {
+            let mut invalid = original_invalid.clone();
+            invalid.message_id = messages[0].id;
+            invalid.path = attachments[0].path.clone();
+            assert!(matches!(
+                database.replace_from(
+                    conversation.id,
+                    messages[0].seq,
+                    "Must not replace",
+                    "fixture",
+                    &[attachments[0].clone(), invalid]
+                ),
+                Err(FoundryError::AttachmentRejected { .. })
+            ));
+            let retained = database
+                .all_messages(conversation.id)
+                .expect("retained history");
+            assert_eq!(
+                retained
+                    .iter()
+                    .map(|message| message.id)
+                    .collect::<Vec<_>>(),
+                vec![messages[0].id, messages[1].id]
+            );
+            for message in retained {
+                assert_eq!(message.content, "Keep original history");
+                assert_eq!(message.attachments.len(), 1);
+                assert_eq!(
+                    database
+                        .attachment_data(message.attachments[0].id)
+                        .expect("retained bytes"),
+                    "data:image/png;base64,iVBORw0KGgo="
+                );
+            }
+        }
+        assert_eq!(
+            database
+                .attachment_data(attachments[2].id)
+                .expect("foreign bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert!(database.attachment_data(attachments[3].id).is_err());
+        drop(database);
+        let reopened = Database::open(&path).expect("reopen");
+        assert_eq!(
+            reopened
+                .message(messages[0].id)
+                .expect("original prompt")
+                .content,
+            "Keep original history"
+        );
+        assert_eq!(
+            reopened
+                .message(messages[1].id)
+                .expect("original successor")
+                .content,
+            "Keep original history"
+        );
+        for attachment in &attachments[..3] {
+            assert_eq!(
+                reopened
+                    .attachment_data(attachment.id)
+                    .expect("preserved image"),
+                "data:image/png;base64,iVBORw0KGgo="
+            );
+        }
+    }
+
+    #[test]
+    fn replacing_an_image_prompt_with_missing_payload_preserves_its_existing_metadata_and_history()
+    {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("foundryui.sqlite3");
+        let database = Database::open(&path).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let prompt = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "Original",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("prompt");
+        let attachment = database
+            .add_attachment(
+                prompt.id,
+                "image",
+                &StagedFile {
+                    meta: StagedAttachment {
+                        token: "copied".to_string(),
+                        mime: "image/png".to_string(),
+                        bytes: 8,
+                        width: None,
+                        height: None,
+                    },
+                    data: b"\x89PNG\r\n\x1a\n".to_vec(),
+                },
+            )
+            .expect("image");
+        let reply = database
+            .append_message(
+                conversation.id,
+                MessageRole::Assistant,
+                "Original answer",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("reply");
+        drop(database);
+        let damaged_fixture = Connection::open(&path).expect("fault fixture");
+        damaged_fixture
+            .execute(
+                "DELETE FROM agent_attachment_payloads WHERE attachment_id = ?1",
+                [attachment.id],
+            )
+            .expect("remove fixture payload");
+        drop(damaged_fixture);
+        let database = Database::open(&path).expect("reopen damaged fixture");
+        let original = database.message(prompt.id).expect("original metadata");
+        assert_eq!(original.attachments[0].id, attachment.id);
+        assert!(database.attachment_data(attachment.id).is_err());
+        assert!(matches!(
+            database.replace_from(
+                conversation.id,
+                prompt.seq,
+                "Must not replace",
+                "fixture",
+                &original.attachments
+            ),
+            Err(FoundryError::AttachmentRejected { .. })
+        ));
+        assert_eq!(
+            database
+                .message(prompt.id)
+                .expect("original prompt")
+                .content,
+            "Original"
+        );
+        assert_eq!(
+            database.message(reply.id).expect("original reply").content,
+            "Original answer"
+        );
+        assert_eq!(
+            database
+                .attachment(attachment.id)
+                .expect("original attachment metadata")
+                .path,
+            format!("attachment:{}", attachment.id)
+        );
+        drop(database);
+        let reopened = Database::open(&path).expect("reopen after rejection");
+        assert_eq!(
+            reopened
+                .message(prompt.id)
+                .expect("persisted original prompt")
+                .content,
+            "Original"
+        );
+        assert_eq!(
+            reopened
+                .message(reply.id)
+                .expect("persisted original reply")
+                .content,
+            "Original answer"
+        );
+        assert_eq!(
+            reopened
+                .message(prompt.id)
+                .expect("persisted metadata")
+                .attachments[0]
+                .id,
+            attachment.id
+        );
+    }
+
+    #[test]
+    fn attachment_payloads_are_independent_copies_when_a_staged_image_is_reused() {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("foundryui.sqlite3");
+        let source = directory.path().join("source.png");
+        std::fs::write(&source, b"\x89PNG\r\n\x1a\n").expect("source image");
+        let database = Database::open(&path).expect("open");
+        let first = database.create_conversation("fixture").expect("first");
+        let second = database.create_conversation("fixture").expect("second");
+        let mut copied = StagedFile {
+            meta: StagedAttachment {
+                token: "copied".to_string(),
+                mime: "image/png".to_string(),
+                bytes: 8,
+                width: None,
+                height: None,
+            },
+            data: std::fs::read(&source).expect("copy source"),
+        };
+        let mut attachments = Vec::new();
+        for id in [first.id, second.id] {
+            let message = database
+                .append_message(
+                    id,
+                    MessageRole::User,
+                    "Image",
+                    "",
+                    None,
+                    MessageStatus::Complete,
+                )
+                .expect("message");
+            attachments.push(
+                database
+                    .add_attachment(message.id, "image", &copied)
+                    .expect("attachment"),
+            );
+        }
+        assert_ne!(attachments[0].id, attachments[1].id);
+        assert_ne!(attachments[0].path, attachments[1].path);
+        copied.data.fill(0);
+        std::fs::write(&source, "External changes").expect("change source");
+        for attachment in &attachments {
+            assert_eq!(
+                database
+                    .attachment_data(attachment.id)
+                    .expect("copied bytes"),
+                "data:image/png;base64,iVBORw0KGgo="
+            );
+        }
+        database
+            .delete_conversation(first.id)
+            .expect("delete first owner");
+        assert!(database.attachment(attachments[0].id).is_err());
+        assert!(database.attachment_data(attachments[0].id).is_err());
+        assert_eq!(
+            database
+                .attachment_data(attachments[1].id)
+                .expect("independent bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        drop(database);
+        let reopened = Database::open(&path).expect("reopen");
+        assert!(reopened.attachment_data(attachments[0].id).is_err());
+        assert_eq!(
+            reopened
+                .attachment_data(attachments[1].id)
+                .expect("persisted bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert_eq!(
+            std::fs::read_to_string(&source).expect("external source"),
+            "External changes"
+        );
+    }
+
+    #[test]
+    fn invalid_attachment_payloads_leave_no_metadata_or_readable_payload() {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("foundryui.sqlite3");
+        let database = Database::open(&path).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let message = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "Image",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("message");
+        let valid = StagedFile {
+            meta: StagedAttachment {
+                token: "copied".to_string(),
+                mime: "image/png".to_string(),
+                bytes: 8,
+                width: None,
+                height: None,
+            },
+            data: b"\x89PNG\r\n\x1a\n".to_vec(),
+        };
+        let mut empty = valid.clone();
+        empty.data.clear();
+        empty.meta.bytes = 0;
+        let mut mismatched = valid.clone();
+        mismatched.meta.bytes = 7;
+        let mut oversized = valid.clone();
+        oversized.data = vec![0; MAX_IMAGE_BYTES + 1];
+        oversized.meta.bytes = oversized.data.len() as u64;
+        let mut unsupported = valid.clone();
+        unsupported.meta.mime = "text/plain".to_string();
+        for staged in [&empty, &mismatched, &oversized, &unsupported] {
+            assert!(
+                database
+                    .add_attachment(message.id, "image", staged)
+                    .is_err()
+            );
+            assert!(database.attachment_paths().expect("metadata").is_empty());
+            assert!(database.attachment_data(1).is_err());
+        }
+        assert!(database.add_attachment(message.id, "file", &valid).is_err());
+        assert!(database.add_attachment(-1, "image", &valid).is_err());
+        assert!(database.attachment_paths().expect("metadata").is_empty());
+        assert!(
+            database
+                .list_messages(conversation.id, None, None)
+                .expect("messages")
+                .messages[0]
+                .attachments
+                .is_empty()
+        );
+        drop(database);
+        let reopened = Database::open(&path).expect("reopen");
+        assert!(
+            reopened
+                .attachment_paths()
+                .expect("metadata after restart")
+                .is_empty()
+        );
+        assert!(reopened.attachment_data(1).is_err());
+        let attachment = reopened
+            .add_attachment(message.id, "image", &valid)
+            .expect("subsequent valid payload");
+        assert_eq!(
+            reopened
+                .attachment_data(attachment.id)
+                .expect("stored bytes"),
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+    }
+
+    #[test]
+    fn attachment_payloads_accept_the_size_limit_without_exposing_bytes_in_metadata() {
+        use super::super::attachments::{StagedAttachment, StagedFile};
+        use base64::Engine;
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let database = Database::open(&directory.path().join("foundryui.sqlite3")).expect("open");
+        let conversation = database
+            .create_conversation("fixture")
+            .expect("conversation");
+        let message = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "Image",
+                "",
+                None,
+                MessageStatus::Complete,
+            )
+            .expect("message");
+        let mut data = vec![0; MAX_IMAGE_BYTES];
+        data[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        let copied = StagedFile {
+            meta: StagedAttachment {
+                token: "copied".to_string(),
+                mime: "image/png".to_string(),
+                bytes: MAX_IMAGE_BYTES as u64,
+                width: None,
+                height: None,
+            },
+            data,
+        };
+        let attachment = database
+            .add_attachment(message.id, "image", &copied)
+            .expect("size limit payload");
+        let metadata = serde_json::to_value(&attachment).expect("metadata");
+        assert_eq!(metadata["path"], format!("attachment:{}", attachment.id));
+        assert!(metadata.get("data").is_none());
+        assert!(metadata.get("payload").is_none());
+        let encoded = database.attachment_data(attachment.id).expect("image data");
+        let body = encoded
+            .strip_prefix("data:image/png;base64,")
+            .expect("image data URL");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(body)
+                .expect("decoded bytes"),
+            copied.data
+        );
     }
 
     #[test]

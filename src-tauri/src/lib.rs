@@ -29,6 +29,7 @@ use foundry::commands::{
     speech_update_transcription, workspace_snapshot,
 };
 use foundry::db::Database;
+use foundry::lifecycle_commands::{projects_move_conversation, projects_remove};
 use foundry::project_commands::{
     projects_create_conversation, projects_get, projects_list, projects_list_conversations,
     projects_pick_create, projects_pick_relocate, projects_rename,
@@ -44,9 +45,7 @@ pub fn run() {
         .setup(|app| {
             let path = app.path().app_data_dir()?.join("foundryui.sqlite3");
             let database = Database::open(&path)?;
-            let attachments = AttachmentStore::new(app.path().app_data_dir()?.join("attachments"));
-
-            let _ = attachments.sweep(&database);
+            let attachments = AttachmentStore::new();
 
             app.state::<AppState>().install_database(Arc::new(database));
             app.state::<AppState>()
@@ -61,6 +60,8 @@ pub fn run() {
             projects_rename,
             projects_pick_relocate,
             projects_create_conversation,
+            projects_move_conversation,
+            projects_remove,
             projects_list_conversations,
             cli_detect,
             server_status,

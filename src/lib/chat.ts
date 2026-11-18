@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { detectLanguage } from "./language";
 import type { FoundryErrorPayload } from "./foundry";
 import type { ResolvedParams } from "./params";
 
@@ -173,7 +174,7 @@ export async function renameConversation(id: number, title: string): Promise<Con
 }
 
 export async function deleteConversation(id: number): Promise<void> {
-  return invoke("chat_delete_conversation", { id });
+  return invoke("chat_delete_conversation", { id, language: detectLanguage() });
 }
 
 export async function setConversationArchived(

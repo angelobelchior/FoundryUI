@@ -14,6 +14,8 @@ pub mod harmony;
 pub mod http;
 pub mod jobs;
 pub mod json;
+pub mod lifecycle_commands;
+pub mod local_inference;
 pub mod model_cache;
 pub mod params;
 pub mod policy;

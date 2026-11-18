@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use super::app::AppState;
-use super::attachments::{StagedAttachment, file_data_url};
+use super::attachments::StagedAttachment;
 use super::backend::FoundryBackend;
 use super::catalog::{self, CatalogModel, ModelKind, Origin};
 use super::chat::{ChatParams, GenerationContext, GenerationStart, SendReceipt, StreamEvent};
@@ -232,17 +232,19 @@ pub fn chat_rename_conversation(
 }
 
 #[tauri::command]
-pub fn chat_delete_conversation(state: State<'_, AppState>, id: i64) -> FoundryResult<()> {
-    let database = state.database()?;
-    let paths = database.conversation_attachment_paths(id)?;
-
-    database.delete_conversation(id)?;
-
-    if let Ok(attachments) = state.attachments() {
-        attachments.remove_paths(&paths);
-    }
-
-    Ok(())
+pub async fn chat_delete_conversation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+    language: Option<String>,
+) -> FoundryResult<()> {
+    super::lifecycle_commands::delete_conversation_with_confirmation(
+        &app,
+        &state,
+        id,
+        language.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -489,7 +491,7 @@ struct PreparedGeneration {
     conversation: Conversation,
     resolved: ResolvedParams,
     chat_params: ChatParams,
-    endpoint: String,
+    endpoint: super::local_inference::VerifiedLocalEndpoint,
     model_id: String,
 }
 
@@ -505,12 +507,7 @@ async fn prepare_generation(
     let resolved = params::resolve(&conversation_params, &model_params, &global);
     let chat_params = resolved.params();
     let cli = state.backend()?;
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let loaded = cli.list_loaded_models().await?;
     let model_id = loaded
         .iter()
@@ -754,9 +751,7 @@ pub fn attachment_discard(state: State<'_, AppState>, tokens: Vec<String>) {
 
 #[tauri::command]
 pub fn attachment_data(state: State<'_, AppState>, id: i64) -> FoundryResult<String> {
-    let attachment = state.database()?.attachment(id)?;
-
-    file_data_url(Path::new(&attachment.path), &attachment.mime)
+    state.database()?.attachment_data(id)
 }
 
 #[tauri::command]
@@ -1142,12 +1137,7 @@ pub async fn speech_transcribe(
 
     state.server.ensure_running(&cli).await?;
 
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let mut auto_loaded = false;
     let mut model = loaded_speech_model(&cli, alias).await?;
 
@@ -1163,21 +1153,13 @@ pub async fn speech_transcribe(
     let model_id = model
         .map(|model| model.id)
         .unwrap_or_else(|| alias.to_string());
-    let client = super::http::build_client();
     let language = language
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let requested_language = language.clone();
     let temperature = temperature.unwrap_or_default().clamp(0.0, 1.0);
-    let payload = speech::transcribe(
-        &client,
-        &endpoint,
-        &model_id,
-        file,
-        language.as_deref(),
-        temperature,
-    )
-    .await?;
+    let payload =
+        speech::transcribe(&endpoint, &model_id, file, language.as_deref(), temperature).await?;
     let duration_ms = speech::probe_duration_ms(file)
         .map(|value| value.min(i64::MAX as u64) as i64)
         .or(payload.duration_ms)
@@ -1528,12 +1510,7 @@ pub async fn embeddings_vectorize(
 
     state.server.ensure_running(&cli).await?;
 
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let mut model = loaded_embedding_model(&cli, &corpus.model_alias).await?;
 
     if model.is_none() {
@@ -1559,20 +1536,15 @@ pub async fn embeddings_vectorize(
         let mut usage = EmbeddingUsageTotals::default();
         let mut completed = 0;
         let mut dimensions = corpus.dimensions;
-        let client = super::http::build_client();
 
         for document in documents {
             if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
 
-            let batch = embeddings::embed_texts(
-                &client,
-                &endpoint,
-                &model_id,
-                std::slice::from_ref(&document.text),
-            )
-            .await?;
+            let batch =
+                embeddings::embed_texts(&endpoint, &model_id, std::slice::from_ref(&document.text))
+                    .await?;
             let usage_step = batch.usage;
             let vector =
                 batch
@@ -1667,12 +1639,7 @@ pub async fn embeddings_answer(
 
     state.server.ensure_running(&cli).await?;
 
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let answer_model = resolve_answer_model(&state, &cli).await?;
     let citations = search.hits.iter().take(8).cloned().collect::<Vec<_>>();
     let (answer, usage) = request_semantic_answer(
@@ -1714,12 +1681,7 @@ pub async fn embeddings_compare(
 
     state.server.ensure_running(&cli).await?;
 
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let mut model = loaded_embedding_model(&cli, alias).await?;
 
     if model.is_none() {
@@ -1733,14 +1695,9 @@ pub async fn embeddings_compare(
     let model_id = model
         .map(|value| value.id)
         .unwrap_or_else(|| alias.to_string());
-    let client = super::http::build_client();
-    let batch = embeddings::embed_texts(
-        &client,
-        &endpoint,
-        &model_id,
-        &[left.to_string(), right.to_string()],
-    )
-    .await?;
+    let batch =
+        embeddings::embed_texts(&endpoint, &model_id, &[left.to_string(), right.to_string()])
+            .await?;
 
     if batch.vectors.len() < 2 {
         return Err(FoundryError::BadResponse {
@@ -1782,12 +1739,7 @@ async fn embedding_search_core(
 
     state.server.ensure_running(&cli).await?;
 
-    let snapshot = state.server.observe(&cli).await?;
-    let endpoint = snapshot
-        .endpoint
-        .ok_or_else(|| FoundryError::ServerUnreachable {
-            detail: "start the local server and try again".to_string(),
-        })?;
+    let endpoint = state.server.verified_endpoint(&cli).await?;
     let mut model = loaded_embedding_model(&cli, &corpus.model_alias).await?;
 
     if model.is_none() {
@@ -1801,9 +1753,7 @@ async fn embedding_search_core(
     let model_id = model
         .map(|value| value.id)
         .unwrap_or_else(|| corpus.model_alias.clone());
-    let client = super::http::build_client();
-    let batch =
-        embeddings::embed_texts(&client, &endpoint, &model_id, &[query.to_string()]).await?;
+    let batch = embeddings::embed_texts(&endpoint, &model_id, &[query.to_string()]).await?;
     let query_vector = embeddings::normalize_vector(batch.vectors.first().ok_or_else(|| {
         FoundryError::BadResponse {
             detail: "the embeddings response has no vectors".to_string(),
@@ -1921,7 +1871,7 @@ async fn resolve_answer_model(state: &AppState, cli: &CliBackend) -> FoundryResu
 }
 
 async fn request_semantic_answer(
-    endpoint: &str,
+    endpoint: &super::local_inference::VerifiedLocalEndpoint,
     model_id: &str,
     model_alias: &str,
     query: &str,
@@ -1968,15 +1918,10 @@ async fn request_semantic_answer(
             }
         ]
     });
-    let client = super::http::build_client();
-    let url = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
-    let response = client
-        .post(url)
-        .json(&payload)
-        .timeout(Duration::from_secs(120))
-        .send()
+    let response = endpoint
+        .post_json("/v1/chat/completions", &payload, Duration::from_secs(120))
         .await
-        .map_err(answer_transport_error)?;
+        .map_err(super::http::local_inference_error)?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
 
@@ -2111,23 +2056,6 @@ fn answer_missing_model(detail: &str) -> bool {
         || lower.contains("model not found")
         || lower.contains("no model matching")
         || lower.contains("model is not loaded")
-}
-
-fn answer_transport_error(error: reqwest::Error) -> FoundryError {
-    if error.is_connect() {
-        FoundryError::ServerUnreachable {
-            detail: error.to_string(),
-        }
-    } else if error.is_timeout() {
-        FoundryError::Timeout {
-            stage: "semantic answer".to_string(),
-            seconds: 120,
-        }
-    } else {
-        FoundryError::BadResponse {
-            detail: error.to_string(),
-        }
-    }
 }
 
 fn embedding_document_inputs(

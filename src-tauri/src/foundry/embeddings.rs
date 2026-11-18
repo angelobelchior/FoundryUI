@@ -25,8 +25,7 @@ pub struct EmbeddingBatch {
 }
 
 pub async fn embed_texts(
-    client: &reqwest::Client,
-    endpoint: &str,
+    endpoint: &super::local_inference::VerifiedLocalEndpoint,
     model: &str,
     input: &[String],
 ) -> FoundryResult<EmbeddingBatch> {
@@ -44,14 +43,14 @@ pub async fn embed_texts(
         input: &'a [String],
     }
 
-    let url = format!("{}/v1/embeddings", endpoint.trim_end_matches('/'));
-    let response = client
-        .post(url)
-        .json(&EmbeddingsRequest { model, input })
-        .timeout(Duration::from_secs(EMBEDDINGS_TIMEOUT_SECONDS))
-        .send()
+    let response = endpoint
+        .post_json(
+            "/v1/embeddings",
+            &EmbeddingsRequest { model, input },
+            Duration::from_secs(EMBEDDINGS_TIMEOUT_SECONDS),
+        )
         .await
-        .map_err(transport_error)?;
+        .map_err(super::http::local_inference_error)?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
 
@@ -263,23 +262,6 @@ fn is_missing_model(detail: &str) -> bool {
         || lower.contains("model not found")
         || lower.contains("no model matching")
         || lower.contains("model is not loaded")
-}
-
-fn transport_error(error: reqwest::Error) -> FoundryError {
-    if error.is_connect() {
-        FoundryError::ServerUnreachable {
-            detail: error.to_string(),
-        }
-    } else if error.is_timeout() {
-        FoundryError::Timeout {
-            stage: "embeddings".to_string(),
-            seconds: EMBEDDINGS_TIMEOUT_SECONDS,
-        }
-    } else {
-        FoundryError::BadResponse {
-            detail: error.to_string(),
-        }
-    }
 }
 
 fn parse_text_paragraphs(input: &str) -> Vec<String> {

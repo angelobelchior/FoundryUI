@@ -1,4 +1,5 @@
 mod context;
+mod context_cycle;
 mod history;
 mod lifecycle;
 mod projects;
@@ -6,6 +7,9 @@ mod records;
 mod snapshots;
 
 pub use context::{AgentMode, ConversationContext, ProjectRecord};
+pub use context_cycle::{
+    ContextCycleOperation, ContextCyclePlan, ContextCycleResult, ProjectRemovalMode,
+};
 pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use projects::{ProjectAvailability, ProjectConversation};
@@ -307,7 +311,8 @@ fn conversation_has_active_work(
 ) -> AgentStoreResult<bool> {
     connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM agent_runs WHERE conversation_id = ?1 AND state IN ('prepared', 'running'))
-         OR EXISTS(SELECT 1 FROM agent_actions WHERE conversation_id = ?1 AND state = 'interrupted' AND claim_token IS NOT NULL)",
+         OR EXISTS(SELECT 1 FROM agent_actions WHERE conversation_id = ?1 AND state IN ('started', 'interrupted') AND claim_token IS NOT NULL)
+         OR EXISTS(SELECT 1 FROM messages WHERE conversation_id = ?1 AND status = 'streaming')",
         [conversation_id], |row| row.get(0),
     ).map_err(store_error)
 }
@@ -395,6 +400,9 @@ pub(super) fn recover_interrupted(connection: &Connection) -> AgentStoreResult<(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod context_cycle_tests;
 
 #[cfg(all(test, target_os = "macos"))]
 mod project_tests;

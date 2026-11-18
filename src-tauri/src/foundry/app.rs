@@ -71,8 +71,10 @@ impl AppState {
     }
 
     pub fn refresh_backend(&self) -> FoundryResult<CliBackend> {
+        self.server.invalidate_prepared_context();
         let cli = CliBackend::detect()?;
         *write(&self.cli) = Some(cli.clone());
+        self.server.invalidate_prepared_context();
 
         Ok(cli)
     }

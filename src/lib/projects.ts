@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Conversation } from "./chat";
+import { detectLanguage } from "./language";
 
 export type ProjectAvailability =
   | "available"
@@ -45,6 +46,12 @@ export type ProjectConversation = {
   };
 };
 
+export type ContextCycleResult = {
+  contexts: ProjectConversation["context"][];
+  removedProjectId: number | null;
+  deletedConversationIds: number[];
+};
+
 export const projectApi = {
   pickCreate: (name: string | null = null) =>
     invoke<ChatProject | null>("projects_pick_create", { name }),
@@ -63,5 +70,16 @@ export const projectApi = {
     invoke<ProjectConversation[]>("projects_list_conversations", {
       projectId,
       archived,
+    }),
+  moveConversation: (conversationId: number, destinationProjectId: number | null) =>
+    invoke<ContextCycleResult | null>("projects_move_conversation", {
+      conversationId,
+      destinationProjectId,
+      language: detectLanguage(),
+    }),
+  remove: (id: number) =>
+    invoke<ContextCycleResult | null>("projects_remove", {
+      id,
+      language: detectLanguage(),
     }),
 };

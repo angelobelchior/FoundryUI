@@ -1,3 +1,10 @@
+CREATE TABLE IF NOT EXISTS agent_attachment_payloads (
+  attachment_id INTEGER PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+  data BLOB NOT NULL CHECK (
+    typeof(data) = 'blob' AND length(data) BETWEEN 1 AND 5242880
+  )
+);
+
 CREATE TABLE IF NOT EXISTS agent_projects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -110,3 +117,10 @@ CREATE TABLE IF NOT EXISTS agent_context_facts (
 
 CREATE INDEX IF NOT EXISTS agent_context_facts_owner
   ON agent_context_facts(conversation_id, context_revision, id);
+
+CREATE TABLE IF NOT EXISTS agent_context_cycle_receipts (
+  request_key TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
+  result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json))
+);
