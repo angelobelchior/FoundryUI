@@ -1,12 +1,14 @@
 mod context;
 mod history;
 mod lifecycle;
+mod projects;
 mod records;
 mod snapshots;
 
 pub use context::{AgentMode, ConversationContext, ProjectRecord};
 pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
+pub use projects::{ProjectAvailability, ProjectConversation};
 pub use records::{ContextFact, FactRecord, NetworkEventState, SourceReference};
 pub use snapshots::ConversationSnapshot;
 
@@ -393,3 +395,6 @@ pub(super) fn recover_interrupted(connection: &Connection) -> AgentStoreResult<(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod project_tests;

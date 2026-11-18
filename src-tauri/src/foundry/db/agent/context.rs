@@ -25,6 +25,7 @@ pub struct ProjectRecord {
     pub name: String,
     pub root_identity_key: String,
     pub display_path: String,
+    pub binding_revision: i64,
 }
 
 impl AgentStore<'_> {
@@ -55,7 +56,7 @@ impl AgentStore<'_> {
             params![name.trim(), root_identity_key, display_path, now],
         ).map_err(store_error)?;
         let project = transaction.query_row(
-            "SELECT id, name, root_identity_key, display_path FROM agent_projects WHERE root_identity_key = ?1",
+            "SELECT id, name, root_identity_key, display_path, binding_revision FROM agent_projects WHERE root_identity_key = ?1",
             [root_identity_key], project_from_row,
         ).map_err(store_error)?;
         transaction.commit().map_err(store_error)?;
@@ -64,7 +65,7 @@ impl AgentStore<'_> {
 
     pub fn project(&self, id: i64) -> AgentStoreResult<ProjectRecord> {
         self.database.connection().query_row(
-            "SELECT id, name, root_identity_key, display_path FROM agent_projects WHERE id = ?1", [id], project_from_row,
+            "SELECT id, name, root_identity_key, display_path, binding_revision FROM agent_projects WHERE id = ?1", [id], project_from_row,
         ).optional().map_err(store_error)?.ok_or(AgentStoreError::NotFound)
     }
 
@@ -90,11 +91,12 @@ impl AgentStore<'_> {
     }
 }
 
-fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ProjectRecord> {
+pub(super) fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ProjectRecord> {
     Ok(ProjectRecord {
         id: row.get(0)?,
         name: row.get(1)?,
         root_identity_key: row.get(2)?,
         display_path: row.get(3)?,
+        binding_revision: row.get(4)?,
     })
 }

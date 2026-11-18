@@ -16,6 +16,8 @@ pub mod jobs;
 pub mod json;
 pub mod model_cache;
 pub mod params;
+pub mod policy;
+pub mod project_commands;
 pub mod resources;
 pub mod server;
 pub mod speech;

@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS agent_projects (
   name TEXT NOT NULL,
   root_identity_key TEXT NOT NULL UNIQUE,
   display_path TEXT NOT NULL,
+  binding_revision INTEGER NOT NULL DEFAULT 1
+    CHECK (typeof(binding_revision) = 'integer' AND binding_revision > 0),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

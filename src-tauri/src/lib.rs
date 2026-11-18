@@ -29,6 +29,10 @@ use foundry::commands::{
     speech_update_transcription, workspace_snapshot,
 };
 use foundry::db::Database;
+use foundry::project_commands::{
+    projects_create_conversation, projects_get, projects_list, projects_list_conversations,
+    projects_pick_create, projects_pick_relocate, projects_rename,
+};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,6 +55,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            projects_pick_create,
+            projects_list,
+            projects_get,
+            projects_rename,
+            projects_pick_relocate,
+            projects_create_conversation,
+            projects_list_conversations,
             cli_detect,
             server_status,
             server_start,
