@@ -7,7 +7,7 @@ use foundryui_lib::foundry::agent_runtime::{
     ApprovalChoice, ApprovalProvider, ChatOnlyReason, CycleDeps, CycleEvent, CycleEventKind,
     CycleLimits, CycleOutcome, CycleRequest, CycleSink, ModelRequest, ModelTurn, RegisteredTool,
     StopReason, ToolAuthorizer, ToolAvailability, ToolCall, ToolExecution, ToolExecutor,
-    ToolRegistry, ToolSpec, ToolUnavailable, TurnProvider, run_cycle,
+    ToolRegistry, ToolSpec, ToolUnavailable, TurnProvider, run_agent_cycle, run_cycle,
 };
 use foundryui_lib::foundry::db::Database;
 use foundryui_lib::foundry::db::agent::authorization::{
@@ -1181,4 +1181,37 @@ fn a_duplicate_request_key_reports_the_finished_run() {
         }
     );
     assert_eq!(provider.requests.len(), 1);
+}
+
+#[test]
+fn the_assembled_agent_runs_read_tools_end_to_end() {
+    let fixture = Fixture::project();
+    std::fs::write(
+        fixture._directory.path().join("a.txt"),
+        b"hello from the project",
+    )
+    .expect("write");
+    let mut provider =
+        ScriptedProvider::new(vec![turn(vec![call("call_a", "a.txt")]), final_turn()]);
+    let outcome = block_on(run_agent_cycle(
+        &fixture.store(),
+        request(fixture.conversation),
+        &mut provider,
+        &(),
+    ));
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 1
+        }
+    );
+    let tool_message = provider.requests[1]
+        .messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .expect("tool message");
+    let content: Value = serde_json::from_str(tool_message["content"].as_str().unwrap()).unwrap();
+    assert_eq!(content["status"], "succeeded");
+    assert_eq!(content["content"], "hello from the project");
 }

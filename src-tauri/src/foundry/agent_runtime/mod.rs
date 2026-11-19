@@ -9,6 +9,8 @@ mod provider;
 mod read_tools;
 mod schema;
 
+use crate::foundry::db::agent::AgentStore;
+
 pub use cycle::{
     ApprovalChoice, ApprovalProvider, ChatOnlyReason, CycleDeps, CycleEvent, CycleEventKind,
     CycleFailure, CycleLimits, CycleOutcome, CycleRequest, CycleSink, ModelRequest, ModelTurn,
@@ -38,6 +40,39 @@ pub fn register_agent_tools(registry: &mut ToolRegistry) -> Result<(), ToolSpecE
     change_tools::register(registry)?;
     command_tools::register(registry)?;
     network_tools::register(registry)
+}
+
+pub async fn run_agent_cycle(
+    store: &AgentStore<'_>,
+    request: CycleRequest,
+    provider: &mut dyn TurnProvider,
+    sink: &dyn CycleSink,
+) -> CycleOutcome {
+    let mut registry = ToolRegistry::default();
+    if let Err(error) = register_agent_tools(&mut registry) {
+        return CycleOutcome::Failed {
+            code: "registry_failed".into(),
+            detail: error.to_string(),
+        };
+    }
+    let mut executor = ToolExecutorSet;
+    let authorizer = ToolAuthorizerSet;
+    let mut approvals = SuspendApprovals;
+    let limits = CycleLimits::default();
+    run_cycle(
+        store,
+        CycleDeps {
+            registry: &registry,
+            provider,
+            executor: &mut executor,
+            authorizer: &authorizer,
+            approvals: &mut approvals,
+            limits: &limits,
+            sink,
+        },
+        request,
+    )
+    .await
 }
 
 #[cfg(test)]
