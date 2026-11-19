@@ -75,6 +75,8 @@ pub enum AgentEventState {
     LimitReached,
     RunCompleted,
     RunFailed,
+    RunCancelled,
+    ActionCancelled,
     RunInterrupted,
     ActionInterrupted,
 }

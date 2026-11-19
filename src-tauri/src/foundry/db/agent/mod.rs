@@ -1,4 +1,5 @@
 pub mod authorization;
+mod concurrency;
 mod context;
 mod context_cycle;
 mod history;
@@ -11,8 +12,11 @@ mod snapshots;
 #[cfg(test)]
 mod authorization_tests;
 #[cfg(test)]
+mod concurrency_tests;
+#[cfg(test)]
 mod snapshot_tests;
 
+pub use concurrency::{ActiveRun, CancelReceipt};
 pub use context::{AgentMode, ConversationContext, ProjectRecord};
 pub use context_cycle::{
     ContextCycleOperation, ContextCyclePlan, ContextCycleResult, ProjectRemovalMode,

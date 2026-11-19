@@ -205,6 +205,9 @@ pub(super) fn claim_call_in_transaction(
     if writer_pending {
         return Err(AgentStoreError::InvalidTransition);
     }
+    if super::concurrency::overlapping_writer(transaction, action.conversation_id)? {
+        return Err(AgentStoreError::InvalidTransition);
+    }
     let token: String = transaction
         .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
         .map_err(store_error)?;
