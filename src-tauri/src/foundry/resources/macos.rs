@@ -7,7 +7,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use super::{DirectoryEntry, DirectoryEntryKind, ResourceError, ResourceErrorKind, ResourceResult, RootIdentity};
+use super::{
+    DirectoryEntry, DirectoryEntryKind, ResourceError, ResourceErrorKind, ResourceResult,
+    RootIdentity,
+};
 
 const DT_DIR: u8 = 4;
 const DT_REG: u8 = 8;

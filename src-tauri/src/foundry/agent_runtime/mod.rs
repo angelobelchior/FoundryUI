@@ -1,4 +1,6 @@
+mod change_tools;
 mod command_tools;
+mod context_search;
 mod cycle;
 mod network_tools;
 mod parser;
@@ -22,12 +24,16 @@ pub use schema::{
     ToolUnavailable,
 };
 
+pub use change_tools::{ChangeAuthorizer, ChangeExecutor};
 pub use command_tools::CommandAuthorizer;
+pub use context_search::{SearchAuthorizer, SearchExecutor};
 pub use network_tools::{NetworkAuthorizer, NetworkExecutor};
 pub use read_tools::{ReadAuthorizer, ReadExecutor};
 
 pub fn register_agent_tools(registry: &mut ToolRegistry) -> Result<(), ToolSpecError> {
     read_tools::register(registry)?;
+    context_search::register(registry)?;
+    change_tools::register(registry)?;
     command_tools::register(registry)?;
     network_tools::register(registry)
 }

@@ -429,11 +429,20 @@ fn listing_reports_entries_without_following_symlinks_outside_the_root() {
     assert!(names.contains(&"sub"));
     assert!(names.contains(&"escape"));
 
-    let escape = entries.iter().find(|entry| entry.name == "escape").expect("escape");
+    let escape = entries
+        .iter()
+        .find(|entry| entry.name == "escape")
+        .expect("escape");
     assert_eq!(escape.kind, DirectoryEntryKind::Symlink);
-    let regular = entries.iter().find(|entry| entry.name == "a.txt").expect("a.txt");
+    let regular = entries
+        .iter()
+        .find(|entry| entry.name == "a.txt")
+        .expect("a.txt");
     assert_eq!(regular.kind, DirectoryEntryKind::File);
-    let sub = entries.iter().find(|entry| entry.name == "sub").expect("sub");
+    let sub = entries
+        .iter()
+        .find(|entry| entry.name == "sub")
+        .expect("sub");
     assert_eq!(sub.kind, DirectoryEntryKind::Directory);
 
     let sub = RelativePath::parse("sub").expect("sub path");
