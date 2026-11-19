@@ -1,5 +1,6 @@
 mod approvals;
 mod change_tools;
+mod command_execution;
 mod command_tools;
 mod composite;
 mod context_budget;
@@ -34,7 +35,7 @@ pub use schema::{
 };
 
 pub use change_tools::{ChangeAuthorizer, ChangeExecutor};
-pub use command_tools::CommandAuthorizer;
+pub use command_tools::{CommandAuthorizer, CommandExecutor};
 pub use composite::{ToolAuthorizerSet, ToolExecutorSet};
 pub use context_budget::{
     CapacityOrigin, Manifest as ContextManifest, OmissionEntry, Plan as ContextPlan,

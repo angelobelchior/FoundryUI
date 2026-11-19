@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::change_tools::{ChangeAuthorizer, ChangeExecutor};
-use super::command_tools::CommandAuthorizer;
+use super::command_tools::{CommandAuthorizer, CommandExecutor};
 use super::context_search::{SearchAuthorizer, SearchExecutor};
 use super::cycle::{ToolAuthorizer, ToolExecution, ToolExecutor, ToolHost};
 use super::network_tools::{NetworkAuthorizer, NetworkExecutor};
@@ -27,6 +27,7 @@ impl ToolExecutor for ToolExecutorSet {
             "read_file" => ReadExecutor.execute(call, spec, host).await,
             "search_files" => SearchExecutor.execute(call, spec, host).await,
             "propose_file_change" => ChangeExecutor.execute(call, spec, host).await,
+            "run_command" => CommandExecutor.execute(call, spec, host).await,
             "http_request" => NetworkExecutor.execute(call, spec, host).await,
             _ => ToolExecution::Failed {
                 summary: json!({"status": "failed", "code": "unknown_tool"}),

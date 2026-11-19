@@ -65,6 +65,22 @@ pub enum ContextFact {
         change_set_id: i64,
         git_reference: String,
     },
+    CommandChange {
+        status: String,
+        exit_code: Option<i32>,
+        stdout: String,
+        stderr: String,
+        files: Vec<CommandFileChange>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandFileChange {
+    pub operation: String,
+    pub path: String,
+    pub base_fingerprint: String,
+    pub proposed_fingerprint: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,6 +434,39 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte))
             {
                 return Err(AgentStoreError::InvalidInput);
+            }
+        }
+        ContextFact::CommandChange {
+            status,
+            exit_code,
+            stdout,
+            stderr,
+            files,
+        } => {
+            if !matches!(
+                status.as_str(),
+                "completed" | "timed_out" | "failed" | "unavailable"
+            ) || exit_code.is_some_and(|code| !(-128..=255).contains(&code))
+                || stdout.len() > 131_072
+                || stderr.len() > 131_072
+                || files.len() > 256
+                || stdout.chars().any(char::is_control)
+                || stderr.chars().any(char::is_control)
+            {
+                return Err(AgentStoreError::InvalidInput);
+            }
+            for file in files {
+                if !matches!(file.operation.as_str(), "create" | "edit" | "delete")
+                    || file.path.is_empty()
+                    || file.path.len() > 4096
+                    || file.path.chars().any(char::is_control)
+                    || file.content.len() > 1_048_576
+                    || file.content.chars().any(char::is_control)
+                {
+                    return Err(AgentStoreError::InvalidInput);
+                }
+                validate_fingerprint(&file.base_fingerprint)?;
+                validate_fingerprint(&file.proposed_fingerprint)?;
             }
         }
     }

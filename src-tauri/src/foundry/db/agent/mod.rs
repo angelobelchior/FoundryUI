@@ -35,7 +35,7 @@ pub use instructions::{
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use network::{NetworkLogEntry, NetworkLogPage, sanitized_destination};
 pub use projects::{ProjectAvailability, ProjectConversation};
-pub use records::{ContextFact, FactRecord, NetworkEventState, SourceReference};
+pub use records::{CommandFileChange, ContextFact, FactRecord, NetworkEventState, SourceReference};
 pub use runtime::RejectionState;
 pub use snapshots::{
     ConversationSnapshot, SnapshotCandidate, SnapshotCapturePlan, SnapshotContentAuthority,

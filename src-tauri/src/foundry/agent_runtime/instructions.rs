@@ -180,8 +180,13 @@ impl TurnProvider for InstructionProvider<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundry::agent_runtime::{CycleOutcome, CycleRequest, ToolCall, run_agent_cycle};
+    use crate::foundry::agent_runtime::command_execution;
+    use crate::foundry::agent_runtime::cycle::ToolAuthorizer;
+    use crate::foundry::agent_runtime::{
+        CommandAuthorizer, CycleOutcome, CycleRequest, ToolCall, run_agent_cycle,
+    };
     use crate::foundry::db::Database;
+    use crate::foundry::policy as p;
     use crate::foundry::resources::RootHandle;
     use std::collections::VecDeque;
 
@@ -297,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn approved_guidance_is_quoted_as_task_context_and_does_not_enable_commands() {
+    fn approved_guidance_is_quoted_as_task_context_and_does_not_authorize_commands() {
         let fixture = Fixture::new();
         std::fs::write(
             fixture.folder.path().join("AGENTS.md"),
@@ -305,18 +310,7 @@ mod tests {
         )
         .unwrap();
         fixture.approve("AGENTS.md");
-        let mut provider = provider(vec![
-            ModelTurn {
-                content: String::new(),
-                reasoning: String::new(),
-                calls: vec![ToolCall {
-                    id: "command".into(),
-                    name: "run_command".into(),
-                    arguments: json!({"argv":["/usr/bin/true"]}),
-                }],
-            },
-            final_turn(),
-        ]);
+        let mut provider = provider(vec![final_turn()]);
         let outcome = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(run_agent_cycle(
@@ -338,13 +332,27 @@ mod tests {
                     .as_str()
                     .is_some_and(|text| text.contains("APPROVED-INJECTION"))
         }));
-        let result = provider.requests[1]
-            .messages
-            .iter()
-            .find(|message| message["role"] == "tool")
+        let store = fixture.database.agent_store();
+        let run = store.start_run(fixture.conversation, "command").unwrap();
+        let call = ToolCall {
+            id: "command".into(),
+            name: "run_command".into(),
+            arguments: json!({"argv":["/usr/bin/true"]}),
+        };
+        let record = store
+            .propose_call(run.id, &call.id, &call.name, &call.arguments)
             .unwrap();
-        let summary: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
-        assert_eq!(summary["code"], "capability_blocked");
+        let revision = store.authorization_revision(fixture.conversation).unwrap();
+        if command_execution::command_sandbox_available() {
+            let facts = CommandAuthorizer
+                .facts(&store, &revision, &record, &call)
+                .unwrap();
+            assert!(matches!(
+                p::evaluate(&facts.action, &facts),
+                p::Decision::Ask(prompts)
+                    if prompts.iter().any(|prompt| matches!(prompt.requirement, p::Requirement::Operation))
+            ));
+        }
         assert!(
             fixture
                 .database
