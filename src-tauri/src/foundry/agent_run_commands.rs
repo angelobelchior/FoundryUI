@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 use super::agent_commands::{AgentCommandError, AgentCommandResult};
 use super::agent_runtime::{
     CycleEvent, CycleOutcome, CycleRequest, CycleSink, EndpointTurnProvider, run_agent_cycle,
+    with_retrieved_context,
 };
 use super::app::AppState;
 use super::backend::FoundryBackend;
@@ -219,6 +220,8 @@ async fn run_agent_task(
             return;
         }
     };
+    let messages =
+        with_retrieved_context(&database.agent_store(), conversation_id, messages, 16_384);
 
     let mut provider = EndpointTurnProvider {
         endpoint: prepared.endpoint,

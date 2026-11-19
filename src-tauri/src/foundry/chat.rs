@@ -523,6 +523,13 @@ async fn stream_completion<S: StreamSink>(
             );
         }
     };
+    let messages = super::agent_runtime::with_retrieved_context(
+        &context.database.agent_store(),
+        context.conversation.id,
+        messages,
+        16_384,
+    );
+
 
     let mut payload = json!({
         "model": context.model_id,

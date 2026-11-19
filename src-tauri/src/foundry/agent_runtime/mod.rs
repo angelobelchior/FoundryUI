@@ -34,7 +34,7 @@ pub use schema::{
 pub use change_tools::{ChangeAuthorizer, ChangeExecutor};
 pub use command_tools::CommandAuthorizer;
 pub use composite::{ToolAuthorizerSet, ToolExecutorSet};
-pub use context_search::{SearchAuthorizer, SearchExecutor};
+pub use context_search::{SearchAuthorizer, SearchExecutor, with_retrieved_context};
 pub use network_tools::{NetworkAuthorizer, NetworkExecutor};
 pub use read_tools::{ReadAuthorizer, ReadExecutor};
 
