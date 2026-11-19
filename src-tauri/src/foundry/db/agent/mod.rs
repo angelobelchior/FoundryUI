@@ -5,6 +5,7 @@ mod context_cycle;
 mod execution;
 mod history;
 mod lifecycle;
+mod network;
 mod projects;
 mod records;
 mod runtime;
@@ -25,6 +26,7 @@ pub use context_cycle::{
 pub use execution::{ExecutionEvent, ExecutionRun};
 pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
+pub use network::{NetworkLogEntry, NetworkLogPage, sanitized_destination};
 pub use projects::{ProjectAvailability, ProjectConversation};
 pub use records::{ContextFact, FactRecord, NetworkEventState, SourceReference};
 pub use runtime::RejectionState;

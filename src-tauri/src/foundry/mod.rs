@@ -1,3 +1,4 @@
+pub mod access_commands;
 pub mod agent_commands;
 pub mod agent_run_commands;
 pub mod agent_runtime;

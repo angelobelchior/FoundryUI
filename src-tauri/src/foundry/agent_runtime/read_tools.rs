@@ -41,6 +41,9 @@ impl ToolExecutor for ReadExecutor {
         _spec: &ToolSpec,
         host: &ToolHost<'_, '_>,
     ) -> ToolExecution {
+        if !host.reads_current() {
+            return read_failure("read_restricted");
+        }
         let Some(path) = call.arguments.get("path").and_then(Value::as_str) else {
             return read_failure("read");
         };
@@ -68,6 +71,9 @@ impl ToolExecutor for ReadExecutor {
         let truncated = bytes.len() > MAX_READ_BYTES;
         if truncated {
             bytes.truncate(MAX_READ_BYTES);
+        }
+        if !host.reads_current() {
+            return read_failure("read_restricted");
         }
         ToolExecution::Succeeded {
             summary: json!({
@@ -374,5 +380,36 @@ mod tests {
             }
             other => panic!("expected success, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn changing_the_global_preference_blocks_a_prepared_read() {
+        let fixture = Fixture::project();
+        std::fs::write(
+            fixture._directory.path().join("secret.txt"),
+            b"synthetic-private",
+        )
+        .unwrap();
+        let store = fixture.store();
+        let (record, revision) = propose(&store, fixture.conversation, "secret.txt");
+        let call = call("secret.txt");
+        let trusted = facts(&store, &revision, &record, &call);
+        store.set_authorization_read_allowed(false).unwrap();
+        let result = block_on(ReadExecutor.execute(
+            &call,
+            &ToolSpec {
+                name: "read_file".into(),
+                description: String::new(),
+                parameters: json!({}),
+            },
+            &ToolHost {
+                store: &store,
+                facts: &trusted,
+            },
+        ));
+        assert!(
+            matches!(&result, ToolExecution::Failed { summary } if summary["code"] == "read_restricted")
+        );
+        assert!(!format!("{result:?}").contains("synthetic-private"));
     }
 }

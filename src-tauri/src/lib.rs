@@ -3,6 +3,9 @@ pub mod foundry;
 use std::sync::Arc;
 
 use foundry::AppState;
+use foundry::access_commands::{
+    access_network_log, access_read_preference, access_set_read_preference,
+};
 use foundry::agent_run_commands::{
     agent_execution_mode, agent_execution_status, agent_run_cancel, agent_run_start,
 };
@@ -90,6 +93,9 @@ pub fn run() {
             agent_run_cancel,
             agent_execution_status,
             agent_execution_mode,
+            access_read_preference,
+            access_set_read_preference,
+            access_network_log,
             projects_move_conversation,
             projects_remove,
             projects_list_conversations,

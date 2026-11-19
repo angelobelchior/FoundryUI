@@ -45,6 +45,11 @@ impl ToolExecutor for SearchExecutor {
         _spec: &ToolSpec,
         host: &ToolHost<'_, '_>,
     ) -> ToolExecution {
+        if !host.reads_current() {
+            return ToolExecution::Failed {
+                summary: json!({"status": "failed", "code": "read_restricted"}),
+            };
+        }
         let Some(query) = call.arguments.get("query").and_then(Value::as_str) else {
             return search_failure();
         };
@@ -73,6 +78,8 @@ impl ToolExecutor for SearchExecutor {
         };
         let mut walker = SearchWalker {
             root: &root,
+            read_allowed: &|| host.reads_current(),
+            authority_changed: false,
             query: query.to_lowercase(),
             matches: Vec::new(),
             omitted: Vec::new(),
@@ -80,7 +87,16 @@ impl ToolExecutor for SearchExecutor {
             matches_found: 0usize,
             truncated: false,
         };
-        walker.walk(base.as_ref(), "", 0);
+        let base_path = base
+            .as_ref()
+            .map(|relative| relative.as_path().to_string_lossy().into_owned())
+            .unwrap_or_default();
+        walker.walk(base.as_ref(), &base_path, 0);
+        if walker.authority_changed || !host.reads_current() {
+            return ToolExecution::Failed {
+                summary: json!({"status": "failed", "code": "read_restricted"}),
+            };
+        }
         ToolExecution::Succeeded {
             summary: json!({
                 "status": "succeeded",
@@ -96,6 +112,8 @@ impl ToolExecutor for SearchExecutor {
 
 struct SearchWalker<'a> {
     root: &'a RootHandle,
+    read_allowed: &'a (dyn Fn() -> bool + Sync),
+    authority_changed: bool,
     query: String,
     matches: Vec<Value>,
     omitted: Vec<Value>,
@@ -106,6 +124,10 @@ struct SearchWalker<'a> {
 
 impl SearchWalker<'_> {
     fn walk(&mut self, relative: Option<&RelativePath>, base: &str, depth: usize) {
+        if !(self.read_allowed)() {
+            self.authority_changed = true;
+            return;
+        }
         let entries = match self.root.list_directory(relative) {
             Ok(entries) => entries,
             Err(_) => {
@@ -120,6 +142,10 @@ impl SearchWalker<'_> {
             }
         };
         for entry in entries {
+            if !(self.read_allowed)() {
+                self.authority_changed = true;
+                return;
+            }
             if self.entries_seen >= MAX_SEARCH_ENTRIES {
                 self.truncated = true;
                 break;
@@ -164,6 +190,10 @@ impl SearchWalker<'_> {
     }
 
     fn read_and_search(&mut self, path: &str) -> Option<&'static str> {
+        if !(self.read_allowed)() {
+            self.authority_changed = true;
+            return Some("inaccessible");
+        }
         let relative = match RelativePath::parse(path) {
             Ok(relative) => relative,
             Err(_) => return Some("inaccessible"),
@@ -360,6 +390,102 @@ mod tests {
         tokio::runtime::Runtime::new()
             .expect("runtime")
             .block_on(future)
+    }
+
+    #[test]
+    fn scoped_search_keeps_the_relative_directory_in_returned_paths() {
+        let fixture = Fixture::project();
+        std::fs::create_dir(fixture._directory.path().join("src")).unwrap();
+        std::fs::write(
+            fixture._directory.path().join("src/file.txt"),
+            b"needle in src",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture._directory.path().join("file.txt"),
+            b"not the target",
+        )
+        .unwrap();
+        let summary = succeeded(execute(&fixture, json!({"query": "needle", "path": "src"})));
+        assert_eq!(summary["matches"][0]["path"], "src/file.txt");
+    }
+
+    #[test]
+    fn hidden_and_git_ignored_files_are_eligible_by_default() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join(".env"), b"needle").unwrap();
+        std::fs::write(
+            fixture._directory.path().join(".gitignore"),
+            b"private.txt\n",
+        )
+        .unwrap();
+        std::fs::write(fixture._directory.path().join("private.txt"), b"needle").unwrap();
+        let summary = succeeded(execute(&fixture, json!({"query": "needle"})));
+        assert!(
+            summary["matches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["path"] == ".env")
+        );
+        assert!(
+            summary["matches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["path"] == "private.txt")
+        );
+    }
+
+    #[test]
+    fn prepared_search_does_not_return_content_after_global_restriction() {
+        let fixture = Fixture::project();
+        std::fs::write(
+            fixture._directory.path().join("private.txt"),
+            b"needle synthetic-private",
+        )
+        .unwrap();
+        let store = fixture.store();
+        let call = call(json!({"query": "needle"}));
+        let (record, revision) = propose(&store, fixture.conversation, &call.arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+        store.set_authorization_read_allowed(false).unwrap();
+        let result = block_on(SearchExecutor.execute(
+            &call,
+            &spec(),
+            &ToolHost {
+                store: &store,
+                facts: &trusted,
+            },
+        ));
+        assert!(
+            matches!(&result, ToolExecution::Failed { summary } if summary["code"] == "read_restricted")
+        );
+        assert!(!format!("{result:?}").contains("synthetic-private"));
+    }
+
+    #[test]
+    fn a_walk_stops_between_files_when_authority_is_revoked() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("first.txt"), b"needle").unwrap();
+        std::fs::write(folder.path().join("second.txt"), b"needle").unwrap();
+        let root = RootHandle::enroll(folder.path()).unwrap();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let allowed = || calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3;
+        let mut walker = SearchWalker {
+            root: &root,
+            read_allowed: &allowed,
+            authority_changed: false,
+            query: "needle".into(),
+            matches: Vec::new(),
+            omitted: Vec::new(),
+            entries_seen: 0,
+            matches_found: 0,
+            truncated: false,
+        };
+        walker.walk(None, "", 0);
+        assert!(walker.authority_changed);
+        assert!(walker.matches.len() < 2);
     }
 
     fn call(arguments: Value) -> ToolCall {

@@ -214,6 +214,16 @@ pub struct ToolHost<'a, 'db> {
     pub facts: &'a p::TrustedFacts,
 }
 
+impl ToolHost<'_, '_> {
+    pub fn reads_current(&self) -> bool {
+        self.store
+            .authorization_revision(self.facts.action.key.context.conversation_id)
+            .is_ok_and(|revision| {
+                revision.global_read_allowed() && revision.key() == &self.facts.action.key.context
+            })
+    }
+}
+
 #[async_trait]
 pub trait ToolExecutor: Send {
     async fn execute(
@@ -691,7 +701,7 @@ impl Driver<'_, '_> {
             }
         };
         match proposal.status() {
-            AuthorizationStatus::Denied => self.deny(&record, proposal.denial()),
+            AuthorizationStatus::Denied => self.deny(&record, call, proposal.denial()),
             AuthorizationStatus::Ready => {
                 self.dispatch(&proposal, &record, call, Some(&trusted))
                     .await
@@ -827,7 +837,7 @@ impl Driver<'_, '_> {
         }
         let action = self.store.action(record.id).map_err(storage)?;
         if action.state == ActionState::Denied {
-            return self.deny(&action, Some("UserDenied"));
+            return self.deny(&action, call, Some("UserDenied"));
         }
         if action.state != ActionState::Proposed {
             if let Some(summary) = self.stored_result(record.id)? {
@@ -940,8 +950,29 @@ impl Driver<'_, '_> {
     fn deny(
         &mut self,
         record: &ActionRecord,
+        call: &ToolCall,
         denial: Option<&str>,
     ) -> Result<Disposition, CycleFailure> {
+        if call.name == "http_request"
+            && let Some(destination) = call.arguments.get("url").and_then(Value::as_str)
+        {
+            let revision = self
+                .store
+                .authorization_revision(self.conversation_id)
+                .map_err(storage)?;
+            self.store
+                .record_network_access(
+                    &p::ActionKey {
+                        context: revision.key().clone(),
+                        run_id: self.run.id,
+                        action_id: record.id,
+                    },
+                    destination,
+                    crate::foundry::db::agent::NetworkEventState::Blocked,
+                    None,
+                )
+                .map_err(storage)?;
+        }
         let summary = denial_summary(denial);
         self.store
             .record_unexecuted_call(record, &summary, RejectionState::Denied)

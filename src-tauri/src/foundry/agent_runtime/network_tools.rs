@@ -6,7 +6,7 @@ use super::cycle::{ToolExecution, ToolExecutor, ToolHost};
 use super::parser::ToolCall;
 use super::schema::{RegisteredTool, ToolAvailability, ToolRegistry, ToolSpec, ToolSpecError};
 use crate::foundry::db::agent::authorization::AuthorizationRevision;
-use crate::foundry::db::agent::{ActionRecord, AgentStore, ContextFact, NetworkEventState};
+use crate::foundry::db::agent::{ActionRecord, AgentStore, NetworkEventState};
 use crate::foundry::policy as p;
 
 const MAX_BODY_BYTES: usize = 256 * 1024;
@@ -40,63 +40,63 @@ impl ToolExecutor for NetworkExecutor {
         _spec: &ToolSpec,
         host: &ToolHost<'_, '_>,
     ) -> ToolExecution {
-        let p::Operation::Network { destination, .. } = &host.facts.action.operation else {
+        let p::Operation::Network {
+            destination,
+            method,
+        } = &host.facts.action.operation
+        else {
             return ToolExecution::Failed {
                 summary: json!({"status": "failed", "code": "invalid_operation"}),
             };
         };
         let key = &host.facts.action.key;
+        if method != "GET" {
+            return network_failure("unsupported_method");
+        }
+        if host
+            .store
+            .record_network_access(key, destination, NetworkEventState::Attempted, None)
+            .is_err()
+        {
+            return network_failure("audit_unavailable");
+        }
+        let mut audit = NetworkAudit {
+            host,
+            destination,
+            finished: false,
+        };
         let client = crate::foundry::http::build_client();
         let response = match client.get(destination.as_str()).send().await {
             Ok(response) => response,
             Err(_) => {
-                record_network_event(
-                    host.store,
-                    key,
-                    destination,
-                    NetworkEventState::Failed,
-                    None,
-                );
-                return ToolExecution::Failed {
-                    summary: json!({"status": "failed", "code": "connection"}),
-                };
+                return audit.failure("connection", None);
             }
         };
         let status_code = response.status().as_u16();
         if !response.status().is_success() {
-            record_network_event(
-                host.store,
-                key,
-                destination,
-                NetworkEventState::Failed,
-                Some(status_code),
-            );
-            return ToolExecution::Failed {
-                summary: json!({"status": "failed", "code": "http_status"}),
-            };
+            if response.status().is_redirection() {
+                if audit
+                    .finish(NetworkEventState::Redirected, Some(status_code))
+                    .is_err()
+                {
+                    return network_failure("audit_unavailable");
+                }
+                return network_failure("redirect_not_followed");
+            }
+            return audit.failure("http_status", Some(status_code));
         }
         let (bytes, truncated) = match read_body(response, MAX_BODY_BYTES).await {
             Ok(count) => count,
             Err(_) => {
-                record_network_event(
-                    host.store,
-                    key,
-                    destination,
-                    NetworkEventState::Failed,
-                    Some(status_code),
-                );
-                return ToolExecution::Failed {
-                    summary: json!({"status": "failed", "code": "connection"}),
-                };
+                return audit.failure("connection", Some(status_code));
             }
         };
-        record_network_event(
-            host.store,
-            key,
-            destination,
-            NetworkEventState::Completed,
-            Some(status_code),
-        );
+        if audit
+            .finish(NetworkEventState::Completed, Some(status_code))
+            .is_err()
+        {
+            return network_failure("audit_unavailable");
+        }
         ToolExecution::Succeeded {
             summary: json!({
                 "status": "succeeded",
@@ -123,24 +123,46 @@ async fn read_body(
     Ok((total, false))
 }
 
-fn record_network_event(
-    store: &AgentStore<'_>,
-    key: &p::ActionKey,
-    destination: &str,
-    state: NetworkEventState,
-    http_status: Option<u16>,
-) {
-    let _ = store.record_fact(
-        key.context.conversation_id,
-        key.context.context_revision,
-        Some(key.run_id),
-        &format!("network-{}", key.action_id),
-        &ContextFact::NetworkEvent {
-            destination: destination.to_string(),
-            state,
-            http_status,
-        },
-    );
+struct NetworkAudit<'a, 'b, 'db> {
+    host: &'a ToolHost<'b, 'db>,
+    destination: &'a str,
+    finished: bool,
+}
+
+impl NetworkAudit<'_, '_, '_> {
+    fn finish(&mut self, state: NetworkEventState, status: Option<u16>) -> Result<(), ()> {
+        self.finished = true;
+        self.host
+            .store
+            .record_network_access(&self.host.facts.action.key, self.destination, state, status)
+            .map_err(|_| ())
+    }
+
+    fn failure(&mut self, code: &str, status: Option<u16>) -> ToolExecution {
+        if self.finish(NetworkEventState::Failed, status).is_err() {
+            return network_failure("audit_unavailable");
+        }
+        network_failure(code)
+    }
+}
+
+impl Drop for NetworkAudit<'_, '_, '_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.host.store.record_network_access(
+                &self.host.facts.action.key,
+                self.destination,
+                NetworkEventState::Cancelled,
+                None,
+            );
+        }
+    }
+}
+
+fn network_failure(code: &str) -> ToolExecution {
+    ToolExecution::Failed {
+        summary: json!({"status": "failed", "code": code}),
+    }
 }
 
 pub struct NetworkAuthorizer;
@@ -148,7 +170,7 @@ pub struct NetworkAuthorizer;
 impl super::cycle::ToolAuthorizer for NetworkAuthorizer {
     fn facts(
         &self,
-        _store: &AgentStore<'_>,
+        store: &AgentStore<'_>,
         revision: &AuthorizationRevision,
         action: &ActionRecord,
         call: &ToolCall,
@@ -186,6 +208,16 @@ impl super::cycle::ToolAuthorizer for NetworkAuthorizer {
             resources: Vec::new(),
             origin: p::InstructionOrigin::Model,
         };
+        if let p::Operation::Network { destination, .. } = &policy_action.operation {
+            store
+                .record_network_access(
+                    &policy_action.key,
+                    destination,
+                    NetworkEventState::Requested,
+                    None,
+                )
+                .map_err(|_| "network audit is unavailable".to_string())?;
+        }
         Ok(p::TrustedFacts {
             current_key: policy_action.key.clone(),
             action: policy_action,
@@ -218,6 +250,7 @@ mod tests {
     use super::*;
     use crate::foundry::agent_runtime::cycle::ToolAuthorizer;
     use crate::foundry::db::Database;
+    use crate::foundry::db::agent::ContextFact;
     use serde_json::json;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -399,5 +432,120 @@ mod tests {
                 ..
             }
         )));
+        let log = store.network_log(fixture.conversation, None, 100).unwrap();
+        assert_eq!(
+            log.entries
+                .iter()
+                .rev()
+                .map(|entry| entry.state)
+                .collect::<Vec<_>>(),
+            vec![
+                NetworkEventState::Requested,
+                NetworkEventState::Attempted,
+                NetworkEventState::Completed
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_audit_failure_prevents_opening_a_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let (mut facts, call) = network_call(&store, fixture.conversation, &url);
+        facts.action.key.run_id = i64::MAX;
+        let result = NetworkExecutor
+            .execute(
+                &call,
+                &spec(),
+                &ToolHost {
+                    store: &store,
+                    facts: &facts,
+                },
+            )
+            .await;
+        assert!(
+            matches!(result, ToolExecution::Failed { summary } if summary["code"] == "audit_unavailable")
+        );
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+    }
+
+    #[test]
+    fn dropping_an_unfinished_audit_records_cancellation_not_completion() {
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let (facts, _) = network_call(
+            &store,
+            fixture.conversation,
+            "https://example.invalid/path?secret=synthetic",
+        );
+        let host = ToolHost {
+            store: &store,
+            facts: &facts,
+        };
+        {
+            let _audit = NetworkAudit {
+                host: &host,
+                destination: "https://example.invalid/path?secret=synthetic",
+                finished: false,
+            };
+        }
+        let log = store.network_log(fixture.conversation, None, 100).unwrap();
+        assert_eq!(log.entries[0].state, NetworkEventState::Cancelled);
+        assert!(!serde_json::to_string(&log).unwrap().contains("synthetic"));
+        assert!(
+            !log.entries
+                .iter()
+                .any(|entry| entry.state == NetworkEventState::Completed)
+        );
+    }
+
+    #[tokio::test]
+    async fn redirects_are_recorded_without_contacting_the_new_destination() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let target = TcpListener::bind("127.0.0.1:0").unwrap();
+        target.set_nonblocking(true).unwrap();
+        let destination = format!(
+            "http://{}/private?token=synthetic",
+            target.local_addr().unwrap()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 8192];
+            socket.read(&mut request).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 302 Found\r\nLocation: {destination}\r\nContent-Length: 0\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let (facts, call) = network_call(&store, fixture.conversation, &url);
+        let result = NetworkExecutor
+            .execute(
+                &call,
+                &spec(),
+                &ToolHost {
+                    store: &store,
+                    facts: &facts,
+                },
+            )
+            .await;
+        server.join().unwrap();
+        assert!(
+            matches!(result, ToolExecution::Failed { summary } if summary["code"] == "redirect_not_followed")
+        );
+        assert!(
+            matches!(target.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+        let log = store.network_log(fixture.conversation, None, 100).unwrap();
+        assert_eq!(log.entries[0].state, NetworkEventState::Redirected);
+        assert!(!serde_json::to_string(&log).unwrap().contains("synthetic"));
     }
 }

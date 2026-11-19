@@ -4,6 +4,7 @@ import { Modal } from "../../components/Modal";
 import { executionStage } from "../../lib/execution";
 import { projectControlFocus } from "./projectFocus";
 import type { useAgentExecution } from "./useAgentExecution";
+import { ReadNetworkPanel } from "./ReadNetworkPanel";
 
 export function AgentExecution({ agent, compatible, disabled, hasAttachments }: {
   agent: ReturnType<typeof useAgentExecution>;
@@ -79,6 +80,7 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
           </li>)}
         </ol>
       </details> : null}
+      {status ? <ReadNetworkPanel key={status.conversationId} conversationId={status.conversationId} onPreferenceChanged={() => void agent.refresh()} /> : null}
       <Modal open={confirm !== null} title={t("execution.confirm", { title: confirm?.title ?? "" })} onClose={() => { if (!agent.stopping) setConfirm(null); }}>
         <p className="text-[14px] leading-relaxed text-primary">{t("execution.confirmHint")}</p>
         {agent.error ? <p role="alert" className="mt-3 text-[14px] leading-relaxed text-primary">{t("execution.error")}</p> : null}

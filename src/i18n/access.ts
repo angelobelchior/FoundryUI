@@ -1,0 +1,36 @@
+export const accessEnglish = {
+  title: "Reading and network", reading: "Global file reading", allow: "Allow new file reads in all conversations",
+  scope: "When enabled, authorized roots include sensitive, hidden and Git-ignored files by default. This is a global preference, not a project override.",
+  limits: "Binary files, large files and unsupported formats are still limited or omitted. Enabling reading does not include every file in every answer.",
+  retained: "Restricting new reads does not erase content already present in messages or attached copies.",
+  network: "Network history for this conversation", sanitized: "Credentials, paths, query parameters and fragments are hidden in display and copy. These records are not a complete record of activity outside the app.",
+  blocked: "Unsupported protocols and unauditable access remain blocked. Command permissions never bypass network authorization.",
+  empty: "No recorded network access in this conversation.", loading: "Loading reading preference and network history…", error: "Could not update reading preference or network history. Retry; no successful change is being assumed.",
+  retry: "Retry", refresh: "Refresh", more: "Load older records", copy: "Copy sanitized destination", copied: "Sanitized destination copied.", copyFailed: "Could not copy the destination.", unavailable: "Destination unavailable",
+  origin: "Tool http_request · action {{id}}", recorded: "Recorded event", run: "Run {{id}}", status: "HTTP {{status}}", saving: "Saving global preference…",
+  states: { requested: "Requested; no access confirmed", blocked: "Blocked or denied", attempted: "Attempted; outcome not confirmed", redirected: "Redirect refused; target not accessed", completed: "Completed", failed: "Failed", cancelled: "Cancelled; completion not confirmed" },
+};
+export const accessPortuguese: typeof accessEnglish = {
+  title: "Leitura e rede", reading: "Leitura global de arquivos", allow: "Permitir novas leituras em todas as conversas",
+  scope: "Quando habilitada, a leitura nas raízes autorizadas inclui arquivos sensíveis, ocultos e ignorados pelo Git. A preferência é global, sem substituição por projeto.",
+  limits: "Binários, arquivos grandes e formatos não suportados continuam limitados ou omitidos. Permitir leitura não inclui todos os arquivos em cada resposta.",
+  retained: "Restringir novas leituras não apaga conteúdo já presente em mensagens ou cópias anexadas.",
+  network: "Histórico de rede desta conversa", sanitized: "Credenciais, caminhos, parâmetros e fragmentos são ocultados na exibição e na cópia. Estes registros não são um histórico completo de atividades fora do aplicativo.",
+  blocked: "Protocolos não suportados e acessos não auditáveis continuam bloqueados. Permissão de comando não dispensa autorização de rede.",
+  empty: "Nenhum acesso de rede registrado nesta conversa.", loading: "Carregando preferência de leitura e histórico de rede…", error: "Não foi possível atualizar a leitura ou o histórico de rede. Tente novamente; nenhuma mudança é presumida como concluída.",
+  retry: "Tentar novamente", refresh: "Atualizar", more: "Carregar registros anteriores", copy: "Copiar destino sanitizado", copied: "Destino sanitizado copiado.", copyFailed: "Não foi possível copiar o destino.", unavailable: "Destino indisponível",
+  origin: "Ferramenta http_request · ação {{id}}", recorded: "Evento registrado", run: "Execução {{id}}", status: "HTTP {{status}}", saving: "Salvando preferência global…",
+  states: { requested: "Solicitado; acesso não confirmado", blocked: "Bloqueado ou negado", attempted: "Tentativa; resultado não confirmado", redirected: "Redirecionamento recusado; destino não acessado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado; conclusão não confirmada" },
+};
+export const accessSpanish: typeof accessEnglish = {
+  title: "Lectura y red", reading: "Lectura global de archivos", allow: "Permitir nuevas lecturas en todas las conversaciones",
+  scope: "Cuando está habilitada, la lectura en raíces autorizadas incluye archivos sensibles, ocultos e ignorados por Git. La preferencia es global, sin reemplazo por proyecto.",
+  limits: "Los binarios, archivos grandes y formatos no compatibles siguen limitados u omitidos. Permitir lectura no incluye todos los archivos en cada respuesta.",
+  retained: "Restringir nuevas lecturas no borra el contenido ya presente en mensajes o copias adjuntas.",
+  network: "Historial de red de esta conversación", sanitized: "Las credenciales, rutas, parámetros y fragmentos se ocultan al mostrar y copiar. Estos registros no son un historial completo de actividades fuera de la aplicación.",
+  blocked: "Los protocolos no compatibles y accesos no auditables siguen bloqueados. El permiso de comando no sustituye la autorización de red.",
+  empty: "No hay accesos de red registrados en esta conversación.", loading: "Cargando preferencia de lectura e historial de red…", error: "No se pudo actualizar la lectura o el historial de red. Reintenta; no se presume ningún cambio completado.",
+  retry: "Reintentar", refresh: "Actualizar", more: "Cargar registros anteriores", copy: "Copiar destino saneado", copied: "Destino saneado copiado.", copyFailed: "No se pudo copiar el destino.", unavailable: "Destino no disponible",
+  origin: "Herramienta http_request · acción {{id}}", recorded: "Evento registrado", run: "Ejecución {{id}}", status: "HTTP {{status}}", saving: "Guardando preferencia global…",
+  states: { requested: "Solicitado; acceso no confirmado", blocked: "Bloqueado o denegado", attempted: "Intento; resultado no confirmado", redirected: "Redirección rechazada; destino no accedido", completed: "Completado", failed: "Falló", cancelled: "Cancelado; finalización no confirmada" },
+};

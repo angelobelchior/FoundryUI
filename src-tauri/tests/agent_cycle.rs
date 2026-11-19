@@ -1606,3 +1606,55 @@ fn resumed_dispatch_revalidates_facts_before_executing() {
     let content: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
     assert_eq!(content["code"], "authorization_changed");
 }
+
+#[test]
+fn a_denied_network_call_is_logged_as_blocked_without_an_attempt() {
+    let fixture = Fixture::project();
+    let mut registry = ToolRegistry::default();
+    foundryui_lib::foundry::agent_runtime::register_agent_tools(&mut registry).unwrap();
+    let mut provider = ScriptedProvider::new(vec![
+        turn(vec![ToolCall {
+            id: "network-call".into(),
+            name: "http_request".into(),
+            arguments: json!({"method": "GET", "url": "https://user:synthetic@example.invalid/private?token=synthetic"}),
+        }]),
+        final_turn(),
+    ]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = ScriptedApprovals {
+        choice: ApprovalChoice::Deny,
+    };
+    let outcome = run(
+        &fixture,
+        &registry,
+        &mut provider,
+        &mut executor,
+        &foundryui_lib::foundry::agent_runtime::NetworkAuthorizer,
+        &mut approvals,
+        &limits(),
+        &(),
+    );
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 1
+        }
+    );
+    assert!(executor.calls.is_empty());
+    let log = fixture
+        .store()
+        .network_log(fixture.conversation, None, 100)
+        .unwrap();
+    assert_eq!(
+        log.entries
+            .iter()
+            .map(|entry| entry.state)
+            .collect::<Vec<_>>(),
+        [
+            foundryui_lib::foundry::db::agent::NetworkEventState::Blocked,
+            foundryui_lib::foundry::db::agent::NetworkEventState::Requested
+        ]
+    );
+    assert!(!serde_json::to_string(&log).unwrap().contains("synthetic"));
+}
