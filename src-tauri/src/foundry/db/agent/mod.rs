@@ -5,6 +5,7 @@ mod history;
 mod lifecycle;
 mod projects;
 mod records;
+mod runtime;
 mod snapshots;
 
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, Hi
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use projects::{ProjectAvailability, ProjectConversation};
 pub use records::{ContextFact, FactRecord, NetworkEventState, SourceReference};
+pub use runtime::RejectionState;
 pub use snapshots::{
     ConversationSnapshot, SnapshotCandidate, SnapshotCapturePlan, SnapshotContentAuthority,
     SnapshotOmission, SnapshotOrigin, SnapshotRemovalPlan,
@@ -156,6 +158,7 @@ impl AgentStore<'_> {
                 &HistoryContent::StateEvent {
                     event: AgentEventState::RunPrepared,
                     action_id: None,
+                    detail: None,
                 },
             )?;
         }
@@ -196,6 +199,7 @@ impl AgentStore<'_> {
             &HistoryContent::StateEvent {
                 event: AgentEventState::RunCompleted,
                 action_id: None,
+                detail: None,
             },
         )?;
         let run = read_run(&transaction, id)?;
@@ -381,6 +385,7 @@ pub(super) fn recover_interrupted(connection: &Connection) -> AgentStoreResult<(
             &HistoryContent::StateEvent {
                 event: AgentEventState::ActionInterrupted,
                 action_id: Some(id),
+                detail: None,
             },
         )?;
     }
@@ -393,6 +398,7 @@ pub(super) fn recover_interrupted(connection: &Connection) -> AgentStoreResult<(
             &HistoryContent::StateEvent {
                 event: AgentEventState::RunInterrupted,
                 action_id: None,
+                detail: None,
             },
         )?;
     }

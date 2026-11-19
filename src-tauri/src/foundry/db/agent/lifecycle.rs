@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::history::{fingerprint, insert_history, read_action, redact};
+use super::history::{fingerprint, insert_history, read_action, redact_result};
 use super::{
     ActionRecord, ActionState, AgentEventState, AgentStore, AgentStoreError, AgentStoreResult,
     HistoryContent, RunRecord, RunState, read_run, store_error,
@@ -101,6 +101,7 @@ impl AgentStore<'_> {
                     ApprovalDecision::Denied => AgentEventState::Denied,
                 },
                 action_id: Some(action.id),
+                detail: None,
             },
         )?;
         let action = read_action(&transaction, action.id)?;
@@ -164,7 +165,7 @@ impl AgentStore<'_> {
             &HistoryContent::ToolResult {
                 call_id: action.call_id.clone(),
                 outcome,
-                summary: redact(summary),
+                summary: redact_result(summary),
             },
         )?;
         let action = read_action(&transaction, action.id)?;
@@ -223,6 +224,7 @@ pub(super) fn claim_call_in_transaction(
         &HistoryContent::StateEvent {
             event: AgentEventState::Started,
             action_id: Some(action.id),
+            detail: None,
         },
     )?;
     Ok(ActionClaim {
@@ -260,7 +262,7 @@ pub(super) fn checked_arguments(
     Ok(action)
 }
 
-fn checked_reference(
+pub(super) fn checked_reference(
     connection: &Connection,
     reference: &ActionRecord,
 ) -> AgentStoreResult<ActionRecord> {

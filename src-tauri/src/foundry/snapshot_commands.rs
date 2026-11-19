@@ -56,6 +56,7 @@ pub enum HistoricalContentView {
     HistoricalStateEvent {
         event: AgentEventState,
         source_action_id: Option<i64>,
+        detail: Option<String>,
     },
 }
 
@@ -89,9 +90,14 @@ impl From<HistoryContent> for HistoricalContentView {
                 outcome,
                 summary,
             },
-            HistoryContent::StateEvent { event, action_id } => Self::HistoricalStateEvent {
+            HistoryContent::StateEvent {
+                event,
+                action_id,
+                detail,
+            } => Self::HistoricalStateEvent {
                 event,
                 source_action_id: action_id,
+                detail,
             },
         }
     }

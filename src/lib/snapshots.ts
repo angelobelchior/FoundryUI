@@ -23,7 +23,7 @@ export type HistoricalContent =
   | { kind: "historical_text"; role: "user" | "assistant" | "divider"; content: string; reasoning: string }
   | { kind: "historical_tool_call"; sourceCallId: string; sourceTool: string; arguments: unknown }
   | { kind: "historical_tool_result"; sourceCallId: string; outcome: "succeeded" | "failed" | "cancelled"; summary: unknown }
-  | { kind: "historical_state_event"; event: string; sourceActionId: number | null };
+  | { kind: "historical_state_event"; event: string; sourceActionId: number | null; detail: string | null };
 
 export type ConversationSnapshot = {
   id: number;

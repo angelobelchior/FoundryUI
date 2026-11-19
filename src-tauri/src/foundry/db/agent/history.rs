@@ -57,6 +57,8 @@ pub enum HistoryContent {
     StateEvent {
         event: AgentEventState,
         action_id: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
     },
 }
 
@@ -64,10 +66,15 @@ pub enum HistoryContent {
 #[serde(rename_all = "snake_case")]
 pub enum AgentEventState {
     RunPrepared,
+    TurnStarted,
     Approved,
     Denied,
+    AuthorizationPending,
     Started,
+    ToolRejected,
+    LimitReached,
     RunCompleted,
+    RunFailed,
     RunInterrupted,
     ActionInterrupted,
 }
@@ -231,6 +238,42 @@ fn action_from_row(row: &Row<'_>) -> rusqlite::Result<ActionRecord> {
         state: serde_json::from_value(Value::String(state))
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
     })
+}
+
+pub(super) fn redact_result(value: &Value) -> Value {
+    const PRESERVED: [&str; 3] = ["status", "code", "outcome"];
+    const STRUCTURED: [&str; 2] = ["output", "result"];
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    if PRESERVED.contains(&key.as_str()) {
+                        return value.is_string().then(|| (key.clone(), value.clone()));
+                    }
+                    if STRUCTURED.contains(&key.as_str()) {
+                        return Some((key.clone(), redact_result(value)));
+                    }
+                    match key.as_str() {
+                        "truncated" if value.is_boolean() => Some((key.clone(), value.clone())),
+                        "bytes" if value.is_number() => Some((key.clone(), value.clone())),
+                        _ => None,
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(
+            values
+                .iter()
+                .filter_map(|value| match value {
+                    Value::String(_) | Value::Number(_) | Value::Bool(_) => None,
+                    _ => Some(redact_result(value)),
+                })
+                .collect(),
+        ),
+        Value::Null => Value::Null,
+        _ => Value::String("[redacted]".to_string()),
+    }
 }
 
 pub(super) fn redact(value: &Value) -> Value {

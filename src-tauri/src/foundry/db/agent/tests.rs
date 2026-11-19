@@ -617,7 +617,7 @@ fn the_durable_event_journal_orders_intent_approval_start_and_result_without_cop
         }
     ));
     assert!(
-        matches!(events[2].content, HistoryContent::StateEvent {event: AgentEventState::Approved, action_id: Some(id)} if id == call.id)
+        matches!(events[2].content, HistoryContent::StateEvent {event: AgentEventState::Approved, action_id: Some(id), ..} if id == call.id)
     );
     assert!(matches!(
         events[3].content,
@@ -1158,4 +1158,92 @@ fn database_contention_retains_safe_error_codes_without_payloads() {
             .to_string()
             .contains(&path.to_string_lossy().to_string())
     );
+}
+
+#[test]
+fn persisted_tool_results_drop_untrusted_payloads() {
+    let redacted = super::history::redact_result(&json!({
+        "status": "succeeded",
+        "code": "ok",
+        "outcome": "done",
+        "truncated": true,
+        "bytes": 12,
+        "preview": "secret",
+        "output": {"content": "secret", "path": "/tmp/x"},
+        "extra": "dropped",
+        "$field_0": "collision"
+    }));
+    assert_eq!(
+        redacted,
+        json!({
+            "status": "succeeded",
+            "code": "ok",
+            "outcome": "done",
+            "truncated": true,
+            "bytes": 12,
+            "output": {}
+        })
+    );
+}
+
+#[test]
+fn rejected_calls_persist_both_the_call_and_its_result() {
+    let database = Database::open_in_memory().expect("database");
+    let conversation = database
+        .create_conversation("fixture-model")
+        .expect("conversation");
+    let store = database.agent_store();
+    let run = store.start_run(conversation.id, "request").expect("run");
+    store
+        .record_unbound_tool_result(
+            run.id,
+            "call_a",
+            "shell",
+            &json!({"argv": ["ls"]}),
+            ActionOutcome::Failed,
+            &json!({"status": "rejected", "code": "unknown_tool"}),
+        )
+        .expect("result");
+
+    let history = store.history(conversation.id).expect("history");
+    let calls = history
+        .iter()
+        .filter(|entry| matches!(entry.content, HistoryContent::ToolCall { .. }))
+        .count();
+    let results = history
+        .iter()
+        .filter(|entry| matches!(entry.content, HistoryContent::ToolResult { .. }))
+        .count();
+    assert_eq!((calls, results), (1, 1));
+}
+
+#[test]
+fn a_failed_run_keeps_a_single_failure_event() {
+    let database = Database::open_in_memory().expect("database");
+    let conversation = database
+        .create_conversation("fixture-model")
+        .expect("conversation");
+    let store = database.agent_store();
+    let run = store.start_run(conversation.id, "request").expect("run");
+    store.fail_run(run.id, Some("boom")).expect("failure");
+    store
+        .fail_run(run.id, Some("later"))
+        .expect("repeated failure");
+
+    let failures = store
+        .events(conversation.id)
+        .expect("events")
+        .into_iter()
+        .filter(|entry| {
+            matches!(
+                entry.content,
+                HistoryContent::StateEvent {
+                    event: AgentEventState::RunFailed,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(failures, 1);
+    assert_eq!(store.run(run.id).expect("run").state, RunState::Failed);
 }
