@@ -8,6 +8,21 @@ mod macos;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum DirectoryEntryKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub kind: DirectoryEntryKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ResourceErrorKind {
     Unavailable,
     AccessDenied,
@@ -237,6 +252,32 @@ impl RootHandle {
 
     pub fn read(&self, path: &RelativePath, max_bytes: usize) -> ResourceResult<Vec<u8>> {
         self.open_read(path)?.read(max_bytes)
+    }
+
+    pub fn list_directory(
+        &self,
+        path: Option<&RelativePath>,
+    ) -> ResourceResult<Vec<DirectoryEntry>> {
+        self.identity()?;
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            let path = match path {
+                Some(relative) => relative.as_path(),
+                None => Path::new("."),
+            };
+            let entries = macos::list_directory(&self.file, path)?;
+            self.check_revoked()?;
+            Ok(entries)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = path;
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
     }
 
     pub fn open_read(&self, path: &RelativePath) -> ResourceResult<OpenedRead<'_>> {

@@ -405,3 +405,38 @@ fn post_create_validation_failure_reports_a_partial_effect_without_unlinking() {
         String::from_utf8_lossy(&child.stderr)
     );
 }
+
+#[test]
+fn listing_reports_entries_without_following_symlinks_outside_the_root() {
+    let folder = tempfile::tempdir().expect("temporary directory");
+    let root_path = folder.path().join("root");
+    let outside = folder.path().join("outside");
+    std::fs::create_dir(&root_path).expect("root");
+    std::fs::create_dir(&outside).expect("outside");
+    std::fs::write(root_path.join("a.txt"), b"a").expect("file");
+    std::fs::write(root_path.join("b.txt"), b"b").expect("file");
+    std::fs::create_dir(root_path.join("sub")).expect("subdir");
+    symlink(&outside, root_path.join("escape")).expect("symlink");
+
+    let root = RootHandle::enroll(&root_path).expect("root");
+    let entries = root.list_directory(None).expect("listing");
+    let names = entries
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"a.txt"));
+    assert!(names.contains(&"b.txt"));
+    assert!(names.contains(&"sub"));
+    assert!(names.contains(&"escape"));
+
+    let escape = entries.iter().find(|entry| entry.name == "escape").expect("escape");
+    assert_eq!(escape.kind, DirectoryEntryKind::Symlink);
+    let regular = entries.iter().find(|entry| entry.name == "a.txt").expect("a.txt");
+    assert_eq!(regular.kind, DirectoryEntryKind::File);
+    let sub = entries.iter().find(|entry| entry.name == "sub").expect("sub");
+    assert_eq!(sub.kind, DirectoryEntryKind::Directory);
+
+    let sub = RelativePath::parse("sub").expect("sub path");
+    let nested = root.list_directory(Some(&sub)).expect("nested listing");
+    assert!(nested.is_empty());
+}

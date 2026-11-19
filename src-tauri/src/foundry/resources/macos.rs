@@ -2,12 +2,16 @@ use std::ffi::{CString, OsStr};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::mem::{MaybeUninit, size_of};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use super::{ResourceError, ResourceErrorKind, ResourceResult, RootIdentity};
+use super::{DirectoryEntry, DirectoryEntryKind, ResourceError, ResourceErrorKind, ResourceResult, RootIdentity};
+
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
+const DT_LNK: u8 = 10;
 
 #[repr(C)]
 struct VolumeIdentity {
@@ -287,6 +291,51 @@ pub(super) fn create_new(root: &File, path: &Path, content: &[u8]) -> ResourceRe
         });
     }
     Ok(())
+}
+
+pub(super) fn list_directory(root: &File, path: &Path) -> ResourceResult<Vec<DirectoryEntry>> {
+    let dir = open_beneath(root, path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+    if stat(&dir)?.st_dev != stat(root)?.st_dev {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    let raw = dir.into_raw_fd();
+    let stream = unsafe { libc::fdopendir(raw) };
+    if stream.is_null() {
+        let error = io::Error::last_os_error();
+        unsafe { libc::close(raw) };
+        return Err(io_error(error));
+    }
+    let mut entries = Vec::new();
+    loop {
+        unsafe { *libc::__error() = 0 };
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            let error_number = unsafe { *libc::__error() };
+            if error_number != 0 {
+                let error = io::Error::from_raw_os_error(error_number);
+                unsafe { libc::closedir(stream) };
+                return Err(io_error(error));
+            }
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name = name.to_string_lossy().into_owned();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let kind = match unsafe { (*entry).d_type } {
+            DT_DIR => DirectoryEntryKind::Directory,
+            DT_REG => DirectoryEntryKind::File,
+            DT_LNK => DirectoryEntryKind::Symlink,
+            _ => DirectoryEntryKind::Other,
+        };
+        entries.push(DirectoryEntry { name, kind });
+    }
+    unsafe { libc::closedir(stream) };
+    Ok(entries)
 }
 
 pub(super) fn ancestry(file: &File) -> ResourceResult<Vec<RootIdentity>> {
