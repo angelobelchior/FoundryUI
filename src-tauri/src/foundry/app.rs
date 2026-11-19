@@ -6,6 +6,7 @@ use super::cli::CliBackend;
 use super::db::Database;
 use super::error::{FoundryError, FoundryResult};
 use super::jobs::JobRegistry;
+use super::project_selection::ProjectSelectionRegistry;
 use super::server::{ServerManager, ServerPreferences};
 use super::speech::Recorder;
 use super::vectorize::VectorizeRegistry;
@@ -19,6 +20,7 @@ pub struct AppState {
     pub generations: Arc<GenerationRegistry>,
     pub recorder: Recorder,
     pub vectorizations: Arc<VectorizeRegistry>,
+    pub(crate) project_selections: ProjectSelectionRegistry,
 }
 
 impl AppState {
@@ -32,6 +34,7 @@ impl AppState {
             generations: Arc::new(GenerationRegistry::default()),
             recorder: Recorder::new(),
             vectorizations: Arc::new(VectorizeRegistry::default()),
+            project_selections: ProjectSelectionRegistry::default(),
         }
     }
 
@@ -54,6 +57,19 @@ impl AppState {
     pub fn database(&self) -> FoundryResult<Arc<Database>> {
         read(&self.database)
             .clone()
+            .ok_or_else(|| FoundryError::Storage {
+                detail: "the local database is not open".to_string(),
+            })
+    }
+
+    pub(crate) fn with_database<T>(
+        &self,
+        operation: impl FnOnce(&Arc<Database>) -> T,
+    ) -> FoundryResult<T> {
+        let database = read(&self.database);
+        database
+            .as_ref()
+            .map(operation)
             .ok_or_else(|| FoundryError::Storage {
                 detail: "the local database is not open".to_string(),
             })

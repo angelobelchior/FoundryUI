@@ -1,0 +1,426 @@
+{
+  "state": "keyboard-dialog-close",
+  "supportedDesktop": true,
+  "note": null,
+  "unhandledCommands": [],
+  "projectCreationCommands": [
+    "projects_pick_folder"
+  ],
+  "dialogFields": [
+    {
+      "id": "project-create-name",
+      "value": "Coastal accessibility fieldwork",
+      "readOnly": false,
+      "disabled": false
+    }
+  ],
+  "normalStateFailureToastCount": 0,
+  "viewportWidth": 1440,
+  "viewportHeight": 900,
+  "layoutWidth": 1440,
+  "scrollWidth": 1440,
+  "bodyWidth": 1440,
+  "bodyMinWidth": "0px",
+  "scrollX": 0,
+  "scrollY": 0,
+  "fonts": "loaded",
+  "dialogBounds": {
+    "x": 510,
+    "y": 305.171875,
+    "width": 420,
+    "height": 289.640625,
+    "right": 930,
+    "bottom": 594.8125
+  },
+  "focus": {
+    "tag": "BUTTON",
+    "id": "",
+    "label": "Close"
+  },
+  "focusedControlOutline": {
+    "text": "",
+    "color": "rgba(60, 60, 67, 0.62)",
+    "backgroundColor": "rgba(0, 0, 0, 0)",
+    "ancestorBackgrounds": [
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgb(255, 255, 255)",
+      "rgba(0, 0, 0, 0.26)",
+      "rgb(245, 246, 250)",
+      "rgba(0, 0, 0, 0)"
+    ],
+    "fontSize": "13px",
+    "opacity": "1",
+    "focusVisible": true,
+    "outlineColor": "rgb(29, 29, 31)",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px"
+  },
+  "criticalNewTextColors": [
+    {
+      "text": "Chat",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(120, 120, 128, 0.18)",
+      "ancestorBackgrounds": [
+        "rgba(120, 120, 128, 0.18)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Speech",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Embeddings",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Conversations",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "Projects",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(120, 120, 128, 0.18)",
+      "ancestorBackgrounds": [
+        "rgba(120, 120, 128, 0.18)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "Research notes for the international accessibility and language team",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "/Users/demo/Work/International projects/Research notes with a deliberately long folder name",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "10.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "Harbor design system",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "/Users/demo/Work/Harbor/design-system",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "10.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "Field recordings — spring interviews",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "/Volumes/Fieldwork/Interviews/2026 spring",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "10.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "Filesystem root reference",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "/",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "10.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "Models",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Settings",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Keyboard shortcuts",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Confirm the project name before adding this folder. No files will be changed.",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(255, 255, 255)",
+        "rgba(0, 0, 0, 0.26)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "/Users/demo/Work/International projects/Coastal accessibility fieldwork",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(255, 255, 255)",
+        "rgba(0, 0, 0, 0.26)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "Project name",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(255, 255, 255)",
+        "rgba(0, 0, 0, 0.26)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    }
+  ],
+  "disabledControls": []
+}

@@ -37,6 +37,24 @@ impl ProjectRecord {
 }
 
 impl AgentStore<'_> {
+    pub(crate) fn project_selection_token(&self) -> AgentStoreResult<String> {
+        self.database
+            .connection()
+            .query_row("SELECT lower(hex(randomblob(32)))", [], |row| row.get(0))
+            .map_err(store_error)
+    }
+
+    pub(crate) fn selected_project_owner(
+        &self,
+        root: &RootHandle,
+    ) -> AgentStoreResult<Option<ProjectRecord>> {
+        let identity = root
+            .identity()
+            .map_err(|_| AgentStoreError::InvalidInput)?
+            .storage_key();
+        self.database.connection().query_row("SELECT id, name, root_identity_key, display_path, binding_revision FROM agent_projects WHERE root_identity_key = ?1", [identity], project_from_row).optional().map_err(store_error)
+    }
+
     pub fn list_project_conversations(
         &self,
         project_id: Option<i64>,
@@ -239,6 +257,14 @@ impl AgentStore<'_> {
         root: &RootHandle,
         name: Option<&str>,
     ) -> AgentStoreResult<ProjectRecord> {
+        self.select_project(root, name).map(|(project, _)| project)
+    }
+
+    pub fn select_project(
+        &self,
+        root: &RootHandle,
+        name: Option<&str>,
+    ) -> AgentStoreResult<(ProjectRecord, bool)> {
         let identity = root.identity().map_err(|_| AgentStoreError::InvalidInput)?;
         let path = root
             .display_path()
@@ -249,7 +275,24 @@ impl AgentStore<'_> {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or(path);
-        self.record_project(name.unwrap_or(default_name), &identity.storage_key(), path)
+        self.record_project_selection(name.unwrap_or(default_name), &identity.storage_key(), path)
+    }
+
+    pub(crate) fn select_project_if_current(
+        &self,
+        root: &RootHandle,
+        name: &str,
+        expected: Option<&ProjectRecord>,
+    ) -> AgentStoreResult<(ProjectRecord, bool)> {
+        let identity = root
+            .identity()
+            .map_err(|_| AgentStoreError::InvalidInput)?
+            .storage_key();
+        let path = root
+            .display_path()
+            .to_str()
+            .ok_or(AgentStoreError::InvalidInput)?;
+        self.record_project_selection_checked(name, &identity, path, root, expected)
     }
 
     pub fn list_projects(&self) -> AgentStoreResult<Vec<ProjectRecord>> {

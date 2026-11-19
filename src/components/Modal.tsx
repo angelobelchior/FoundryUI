@@ -11,12 +11,13 @@ type ModalProps = {
   onClose: () => void;
   children: ReactNode;
   size?: "sm" | "md" | "lg";
+  className?: string;
 };
 
 const focusableSelector =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Modal({ open, title, onClose, children, size = "sm" }: ModalProps) {
+export function Modal({ open, title, onClose, children, size = "sm", className }: ModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -98,6 +99,7 @@ export function Modal({ open, title, onClose, children, size = "sm" }: ModalProp
         className={cx(
           "pop-in flex max-h-[calc(100vh-24px)] w-full flex-col rounded-xl border border-line bg-elevated shadow-[var(--shadow-popover)] outline-none sm:max-h-[calc(100vh-48px)]",
           size === "lg" ? "max-w-[640px]" : size === "md" ? "max-w-[520px]" : "max-w-[420px]",
+          className,
         )}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-line py-2.5 pl-4 pr-2">

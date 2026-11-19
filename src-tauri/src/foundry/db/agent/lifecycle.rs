@@ -115,58 +115,9 @@ impl AgentStore<'_> {
     ) -> AgentStoreResult<ActionClaim> {
         let mut connection = self.database.connection();
         let transaction = connection.transaction().map_err(store_error)?;
-        let action = checked_arguments(&transaction, reference, arguments)?;
-        let existing: Option<String> = transaction
-            .query_row(
-                "SELECT claim_token FROM agent_actions WHERE id = ?1",
-                [action.id],
-                |row| row.get(0),
-            )
-            .map_err(store_error)?;
-        if existing.is_some() {
-            return Err(AgentStoreError::AlreadyClaimed);
-        }
-        require_active_run(&transaction, &read_run(&transaction, action.run_id)?)?;
-        if action.state != ActionState::Approved {
-            return Err(AgentStoreError::InvalidTransition);
-        }
-        let writer_pending: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM agent_actions WHERE conversation_id = ?1 AND id != ?2
-             AND (state = 'started' OR (state = 'interrupted' AND claim_token IS NOT NULL)))",
-                params![action.conversation_id, action.id],
-                |row| row.get(0),
-            )
-            .map_err(store_error)?;
-        if writer_pending {
-            return Err(AgentStoreError::InvalidTransition);
-        }
-        let token: String = transaction
-            .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
-            .map_err(store_error)?;
-        let now = now_millis();
-        transaction.execute("UPDATE agent_actions SET state = 'started', claim_token = ?1, updated_at = ?2 WHERE id = ?3 AND state = 'approved' AND claim_token IS NULL", params![token, now, action.id]).map_err(store_error)?;
-        transaction
-            .execute(
-                "UPDATE agent_runs SET state = 'running', updated_at = ?1 WHERE id = ?2",
-                params![now, action.run_id],
-            )
-            .map_err(store_error)?;
-        insert_history(
-            &transaction,
-            action.conversation_id,
-            action.run_id,
-            Some(action.id),
-            &HistoryContent::StateEvent {
-                event: AgentEventState::Started,
-                action_id: Some(action.id),
-            },
-        )?;
+        let claim = claim_call_in_transaction(&transaction, reference, arguments)?;
         transaction.commit().map_err(store_error)?;
-        Ok(ActionClaim {
-            reference: action,
-            token,
-        })
+        Ok(claim)
     }
 
     pub fn complete_call(
@@ -222,6 +173,64 @@ impl AgentStore<'_> {
     }
 }
 
+pub(super) fn claim_call_in_transaction(
+    transaction: &Connection,
+    reference: &ActionRecord,
+    arguments: &Value,
+) -> AgentStoreResult<ActionClaim> {
+    let action = checked_arguments(transaction, reference, arguments)?;
+    let existing: Option<String> = transaction
+        .query_row(
+            "SELECT claim_token FROM agent_actions WHERE id = ?1",
+            [action.id],
+            |row| row.get(0),
+        )
+        .map_err(store_error)?;
+    if existing.is_some() {
+        return Err(AgentStoreError::AlreadyClaimed);
+    }
+    require_active_run(transaction, &read_run(transaction, action.run_id)?)?;
+    if action.state != ActionState::Approved {
+        return Err(AgentStoreError::InvalidTransition);
+    }
+    let writer_pending: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM agent_actions WHERE conversation_id = ?1 AND id != ?2
+             AND (state = 'started' OR (state = 'interrupted' AND claim_token IS NOT NULL)))",
+            params![action.conversation_id, action.id],
+            |row| row.get(0),
+        )
+        .map_err(store_error)?;
+    if writer_pending {
+        return Err(AgentStoreError::InvalidTransition);
+    }
+    let token: String = transaction
+        .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
+        .map_err(store_error)?;
+    let now = now_millis();
+    transaction.execute("UPDATE agent_actions SET state = 'started', claim_token = ?1, updated_at = ?2 WHERE id = ?3 AND state = 'approved' AND claim_token IS NULL", params![token, now, action.id]).map_err(store_error)?;
+    transaction
+        .execute(
+            "UPDATE agent_runs SET state = 'running', updated_at = ?1 WHERE id = ?2",
+            params![now, action.run_id],
+        )
+        .map_err(store_error)?;
+    insert_history(
+        transaction,
+        action.conversation_id,
+        action.run_id,
+        Some(action.id),
+        &HistoryContent::StateEvent {
+            event: AgentEventState::Started,
+            action_id: Some(action.id),
+        },
+    )?;
+    Ok(ActionClaim {
+        reference: action,
+        token,
+    })
+}
+
 pub(super) fn require_active_run(connection: &Connection, run: &RunRecord) -> AgentStoreResult<()> {
     let revision: i64 = connection
         .query_row(
@@ -239,7 +248,7 @@ pub(super) fn require_active_run(connection: &Connection, run: &RunRecord) -> Ag
     Ok(())
 }
 
-fn checked_arguments(
+pub(super) fn checked_arguments(
     connection: &Connection,
     reference: &ActionRecord,
     arguments: &Value,

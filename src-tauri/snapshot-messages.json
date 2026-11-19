@@ -1,0 +1,41 @@
+{
+  "en": {
+    "captureTitle": "Attach a reference copy",
+    "removeTitle": "Remove reference copy",
+    "attach": "Attach copy",
+    "remove": "Remove copy",
+    "cancel": "Cancel",
+    "source": "Source",
+    "destination": "Destination",
+    "standalone": "No project",
+    "referenceNotice": "This is a read-only reference, not current instructions or permission. It does not grant access to the source folder. Old tool calls are historical evidence and will not be executed.",
+    "captureNotice": "The copy will contain the available history when confirmed. In-progress content may be partial. Unsupported media and nested copies are identified as omitted. Later model use may select excerpts or summaries.",
+    "removeNotice": "This permanently removes the copy from this conversation. The source conversation and its files will not be deleted. If the source no longer exists, this copy cannot be recovered in the application."
+  },
+  "pt-BR": {
+    "captureTitle": "Anexar cópia de referência",
+    "removeTitle": "Remover cópia de referência",
+    "attach": "Anexar cópia",
+    "remove": "Remover cópia",
+    "cancel": "Cancelar",
+    "source": "Origem",
+    "destination": "Destino",
+    "standalone": "Sem projeto",
+    "referenceNotice": "Esta é uma referência somente para leitura, não uma instrução atual ou permissão. Ela não concede acesso à pasta de origem. Chamadas antigas de ferramentas são evidências históricas e não serão executadas.",
+    "captureNotice": "A cópia conterá o histórico disponível no momento da confirmação. Conteúdo em andamento pode ser parcial. Mídias não suportadas e outras cópias são identificadas como omitidas. O uso posterior pelo modelo pode selecionar trechos ou resumos.",
+    "removeNotice": "Esta ação remove permanentemente a cópia desta conversa. A conversa original e seus arquivos não serão excluídos. Se a origem não existir mais, esta cópia não poderá ser recuperada no aplicativo."
+  },
+  "es": {
+    "captureTitle": "Adjuntar copia de referencia",
+    "removeTitle": "Eliminar copia de referencia",
+    "attach": "Adjuntar copia",
+    "remove": "Eliminar copia",
+    "cancel": "Cancelar",
+    "source": "Origen",
+    "destination": "Destino",
+    "standalone": "Sin proyecto",
+    "referenceNotice": "Esta es una referencia de solo lectura, no una instrucción actual ni un permiso. No concede acceso a la carpeta de origen. Las llamadas antiguas a herramientas son evidencia histórica y no se ejecutarán.",
+    "captureNotice": "La copia contendrá el historial disponible al confirmar. El contenido en curso puede ser parcial. Se indican los medios no compatibles y las copias anidadas omitidas. El uso posterior por el modelo puede seleccionar fragmentos o resúmenes.",
+    "removeNotice": "Esta acción elimina permanentemente la copia de esta conversación. La conversación original y sus archivos no se eliminarán. Si el origen ya no existe, la copia no se podrá recuperar en la aplicación."
+  }
+}

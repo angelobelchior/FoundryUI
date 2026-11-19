@@ -1,0 +1,50 @@
+{
+  "en": {
+    "rootTitle": "Authorize a conversation folder",
+    "grantRoot": "Authorize in this conversation",
+    "rootNotice": "This folder will be remembered only in this conversation, until revoked or its context changes. Reading follows the global settings, which allow sensitive, hidden and Git-ignored files by default. Creation and editing follow the conversation mode. Commands, destructive actions and network access require their own controls. This does not enable remote inference.",
+    "decisionTitle": "Decide action permission",
+    "allowOnce": "Allow this action",
+    "allowRemember": "Remember in this conversation",
+    "rememberNotice": "Remember only this specific permission and its scope in this conversation. This does not replace permissions for other dimensions, confirm destructive actions or external project access, or enable remote inference. The decision does not start the action.",
+    "onceNotice": "Allow only this bound request. This is not a remembered permission and does not start the action.",
+    "recoveryUnavailable": "Recovery is not guaranteed. No automatic rollback is offered.",
+    "recoveryDeclared": "A specific recovery protection is associated with this request. This permission does not itself execute recovery.",
+    "cancel": "Cancel",
+    "conversation": "Conversation",
+    "request": "Request",
+    "fingerprint": "Exact constraints fingerprint"
+  },
+  "pt-BR": {
+    "rootTitle": "Autorizar pasta da conversa",
+    "grantRoot": "Autorizar nesta conversa",
+    "rootNotice": "Esta pasta será lembrada somente nesta conversa, até revogação ou mudança de contexto. A leitura segue a configuração global, que permite arquivos sensíveis, ocultos e ignorados pelo Git por padrão. Criação e edição seguem o modo da conversa. Comandos, ações destrutivas e rede exigem seus próprios controles. Isso não habilita inferência remota.",
+    "decisionTitle": "Decidir permissão da ação",
+    "allowOnce": "Permitir esta ação",
+    "allowRemember": "Lembrar nesta conversa",
+    "rememberNotice": "Guardar somente esta permissão específica e seu alcance nesta conversa. Isso não substitui autorizações das outras dimensões, não confirma ações destrutivas ou acesso externo ao projeto e não habilita inferência remota. A decisão não inicia a ação.",
+    "onceNotice": "Permitir somente esta solicitação vinculada. A decisão não será lembrada e não inicia a ação.",
+    "recoveryUnavailable": "A recuperação não é garantida. Não há promessa de desfazer automaticamente.",
+    "recoveryDeclared": "Há uma proteção de recuperação específica associada a esta solicitação. Esta permissão não executa recuperação por si só.",
+    "cancel": "Cancelar",
+    "conversation": "Conversa",
+    "request": "Solicitação",
+    "fingerprint": "Identificação das restrições exatas"
+  },
+  "es": {
+    "rootTitle": "Autorizar carpeta de la conversación",
+    "grantRoot": "Autorizar en esta conversación",
+    "rootNotice": "Esta carpeta se recordará solo en esta conversación, hasta su revocación o un cambio de contexto. La lectura sigue la configuración global, que permite archivos sensibles, ocultos e ignorados por Git de forma predeterminada. La creación y edición siguen el modo de la conversación. Los comandos, las acciones destructivas y la red requieren sus propios controles. Esto no habilita inferencia remota.",
+    "decisionTitle": "Decidir permiso de la acción",
+    "allowOnce": "Permitir esta acción",
+    "allowRemember": "Recordar en esta conversación",
+    "rememberNotice": "Recordar solo este permiso específico y su alcance en esta conversación. No sustituye permisos de otras dimensiones, no confirma acciones destructivas ni acceso externo al proyecto y no habilita inferencia remota. La decisión no inicia la acción.",
+    "onceNotice": "Permitir solo esta solicitud vinculada. La decisión no se recordará y no inicia la acción.",
+    "recoveryUnavailable": "La recuperación no está garantizada. No se ofrece reversión automática.",
+    "recoveryDeclared": "Esta solicitud tiene asociada una protección de recuperación específica. Este permiso no ejecuta la recuperación por sí solo.",
+    "cancel": "Cancelar",
+    "conversation": "Conversación",
+    "request": "Solicitud",
+    "fingerprint": "Identificación de restricciones exactas"
+  }
+}

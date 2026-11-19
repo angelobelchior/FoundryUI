@@ -30,9 +30,17 @@ use foundry::commands::{
 };
 use foundry::db::Database;
 use foundry::lifecycle_commands::{projects_move_conversation, projects_remove};
+use foundry::permission_commands::{
+    authorization_decide, authorization_grants, authorization_pick_root, authorization_requests,
+    authorization_revision, authorization_revoke,
+};
 use foundry::project_commands::{
-    projects_create_conversation, projects_get, projects_list, projects_list_conversations,
-    projects_pick_create, projects_pick_relocate, projects_rename,
+    projects_confirm_folder, projects_conversation_context, projects_create_conversation,
+    projects_discard_folder, projects_get, projects_list, projects_list_conversations,
+    projects_pick_create, projects_pick_folder, projects_pick_relocate, projects_rename,
+};
+use foundry::snapshot_commands::{
+    snapshots_candidates, snapshots_capture, snapshots_get, snapshots_list, snapshots_remove,
 };
 use tauri::Manager;
 
@@ -55,11 +63,26 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             projects_pick_create,
+            projects_pick_folder,
+            projects_confirm_folder,
+            projects_discard_folder,
             projects_list,
             projects_get,
             projects_rename,
             projects_pick_relocate,
             projects_create_conversation,
+            projects_conversation_context,
+            snapshots_candidates,
+            snapshots_capture,
+            snapshots_get,
+            snapshots_list,
+            snapshots_remove,
+            authorization_revision,
+            authorization_requests,
+            authorization_grants,
+            authorization_revoke,
+            authorization_pick_root,
+            authorization_decide,
             projects_move_conversation,
             projects_remove,
             projects_list_conversations,

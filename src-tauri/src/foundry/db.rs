@@ -15,7 +15,13 @@ use super::jobs::now_millis;
 use super::params::ResolvedParams;
 
 const SCHEMA: &str = include_str!("../../schema.sql");
-const AGENT_SCHEMA: &str = include_str!("../../agent-schema.sql");
+const AGENT_SCHEMA: &str = concat!(
+    include_str!("../../agent-schema.sql"),
+    "\n",
+    include_str!("../../authorization-schema.sql"),
+    "\n",
+    include_str!("../../snapshot-schema.sql")
+);
 const SCHEMA_STAMP_SUFFIX: &str = ".schema";
 const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_PAGE: u32 = 80;
@@ -306,6 +312,7 @@ impl StreamBuffer {
 
 pub struct Database {
     connection: Mutex<Connection>,
+    authority_instance: std::sync::Arc<()>,
 }
 
 impl Database {
@@ -347,6 +354,7 @@ impl Database {
 
         Ok(Self {
             connection: Mutex::new(connection),
+            authority_instance: std::sync::Arc::new(()),
         })
     }
 

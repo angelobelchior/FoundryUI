@@ -1,3 +1,4 @@
+pub mod authorization;
 mod context;
 mod context_cycle;
 mod history;
@@ -5,6 +6,11 @@ mod lifecycle;
 mod projects;
 mod records;
 mod snapshots;
+
+#[cfg(test)]
+mod authorization_tests;
+#[cfg(test)]
+mod snapshot_tests;
 
 pub use context::{AgentMode, ConversationContext, ProjectRecord};
 pub use context_cycle::{
@@ -14,7 +20,10 @@ pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, Hi
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use projects::{ProjectAvailability, ProjectConversation};
 pub use records::{ContextFact, FactRecord, NetworkEventState, SourceReference};
-pub use snapshots::ConversationSnapshot;
+pub use snapshots::{
+    ConversationSnapshot, SnapshotCandidate, SnapshotCapturePlan, SnapshotContentAuthority,
+    SnapshotOmission, SnapshotOrigin, SnapshotRemovalPlan,
+};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};

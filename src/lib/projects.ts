@@ -17,6 +17,15 @@ export type ChatProject = {
   availability: ProjectAvailability;
 };
 
+export type ProjectSelection = ChatProject & { created: boolean };
+
+export type ProjectFolderSelection = {
+  selectionId: string;
+  folderPath: string;
+  defaultName: string;
+  existingProject: ChatProject | null;
+};
+
 export type ProjectCommandErrorCode =
   | "ProjectInvalidInput"
   | "ProjectNotFound"
@@ -53,8 +62,13 @@ export type ContextCycleResult = {
 };
 
 export const projectApi = {
+  pickFolder: () => invoke<ProjectFolderSelection | null>("projects_pick_folder"),
+  confirmFolder: (selectionId: string, name: string) =>
+    invoke<ProjectSelection>("projects_confirm_folder", { selectionId, name }),
+  discardFolder: (selectionId: string) =>
+    invoke<void>("projects_discard_folder", { selectionId }),
   pickCreate: (name: string | null = null) =>
-    invoke<ChatProject | null>("projects_pick_create", { name }),
+    invoke<ProjectSelection | null>("projects_pick_create", { name }),
   list: () => invoke<ChatProject[]>("projects_list"),
   get: (id: number) => invoke<ChatProject>("projects_get", { id }),
   rename: (id: number, name: string) =>
@@ -70,6 +84,10 @@ export const projectApi = {
     invoke<ProjectConversation[]>("projects_list_conversations", {
       projectId,
       archived,
+    }),
+  conversationContext: (conversationId: number) =>
+    invoke<ProjectConversation["context"]>("projects_conversation_context", {
+      conversationId,
     }),
   moveConversation: (conversationId: number, destinationProjectId: number | null) =>
     invoke<ContextCycleResult | null>("projects_move_conversation", {

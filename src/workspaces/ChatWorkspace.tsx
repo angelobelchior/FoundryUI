@@ -9,6 +9,7 @@ import {
   ChatIcon,
   ChevronDownIcon,
   CloseIcon,
+  FolderIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -21,11 +22,9 @@ import { useToast } from "../components/Toast";
 import {
   cancelGeneration,
   conversationUsage,
-  createConversation,
   deleteConversation,
   editChatMessage,
   exportConversation,
-  listConversations,
   listMessages,
   mergeConversation,
   mergeMessages,
@@ -77,6 +76,14 @@ import { ModelMenu, type ChatModelOption } from "./chat/ModelMenu";
 import { ParamsPopover } from "./chat/ParamsPopover";
 import { SearchPanel, type SearchScope } from "./chat/SearchPanel";
 import { TokenUsageBadge } from "./chat/TokenUsageBadge";
+import { projectApi, type ChatProject, type ProjectConversation, type ProjectFolderSelection } from "../lib/projects";
+import { ProjectNavigation, ProjectsPanel } from "./chat/ProjectsPanel";
+import { ProjectContext } from "./chat/ProjectContext";
+import { ProjectMoveDialog } from "./chat/ProjectMoveDialog";
+import { projectErrorLabel } from "./chat/projectErrors";
+import { ProjectCreateDialog } from "./chat/ProjectCreateDialog";
+import { projectControlFocus } from "./chat/projectFocus";
+import { cx } from "../lib/cx";
 
 const THREAD_PAGE_SIZE = 80;
 
@@ -106,6 +113,24 @@ export function ChatWorkspace({
 }: ChatWorkspaceProps) {
   const { t } = useTranslation();
   const { push } = useToast();
+  const [projects, setProjects] = useState<ChatProject[]>([]);
+  const [projectsView, setProjectsView] = useState(false);
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsLoadError, setProjectsLoadError] = useState<string | null>(null);
+  const [projectNotice, setProjectNotice] = useState<string | null>(null);
+  const [projectMoveOpen, setProjectMoveOpen] = useState(false);
+  const [projectFolderSelection, setProjectFolderSelection] = useState<ProjectFolderSelection | null>(null);
+  const [projectSelectionExpired, setProjectSelectionExpired] = useState(false);
+  const pendingFolderSelection = useRef<ProjectFolderSelection | null>(null);
+  const projectWorkspaceMounted = useRef(true);
+  const moveReturnFocus = useRef<HTMLElement | null>(null);
+  const [conversationContexts, setConversationContexts] = useState<
+    Record<number, ProjectConversation["context"]>
+  >({});
+  const selectedProject = projects.find((project) => project.id === projectId) ?? null;
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -149,6 +174,10 @@ export function ChatWorkspace({
   const [listQuery, setListQuery] = useState("");
   const activeRef = useRef<ActiveGeneration | null>(null);
   const selectedIdRef = useRef<number | null>(null);
+  const scopeNavigation = useRef(0);
+  const scopeRequest = useRef(0);
+  const selectionIntent = useRef<{ navigation: number; id: number } | null>(null);
+  const [scopeRevision, setScopeRevision] = useState(0);
   const finishedRef = useRef(new Set<string>());
   const pendingJump = useRef<{ conversationId: number; messageId: number } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +213,10 @@ export function ChatWorkspace({
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    if (!projectMoveOpen) moveReturnFocus.current?.focus();
+  }, [projectMoveOpen]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -317,36 +350,264 @@ export function ChatWorkspace({
     }
   }, []);
 
+  const reloadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsLoadError(null);
+    try {
+      setProjects(await projectApi.list());
+    } catch (error) {
+      setProjectsLoadError(projectErrorLabel(error, t));
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => { void reloadProjects(); }, [reloadProjects]);
+
+  useEffect(() => {
+    projectWorkspaceMounted.current = true;
+    return () => {
+      projectWorkspaceMounted.current = false;
+      const selection = pendingFolderSelection.current;
+      if (selection) void projectApi.discardFolder(selection.selectionId).catch(() => undefined);
+    };
+  }, []);
+
+  function beginScopeNavigation() {
+    scopeRequest.current += 1;
+    return ++scopeNavigation.current;
+  }
+
+  function commitScopeNavigation(
+    nextProjectId: number | null,
+    nextArchived: boolean,
+    nextProjectsView: boolean,
+    preferredId: number | null,
+    navigation = beginScopeNavigation(),
+  ) {
+    selectionIntent.current = preferredId === null ? null : { navigation, id: preferredId };
+    setProjectId(nextProjectId);
+    setArchivedView(nextArchived);
+    setProjectsView(nextProjectsView);
+    selectedIdRef.current = preferredId;
+    setSelectedId(preferredId);
+    setConversations(null);
+    setScopeRevision(navigation);
+  }
+
+  const installScopeEntries = useCallback((entries: ProjectConversation[]) => {
+    const next = entries.map((entry) => entry.conversation);
+    const intent = selectionIntent.current;
+    const preferredId = intent?.navigation === scopeNavigation.current ? intent.id : null;
+    setConversationContexts((current) => ({
+      ...current,
+      ...Object.fromEntries(entries.map((entry) => [entry.conversation.id, entry.context])),
+    }));
+    setConversations(next);
+    setSelectedId((current) => {
+      if (preferredId !== null && next.some((entry) => entry.id === preferredId)) return preferredId;
+      return next.some((entry) => entry.id === current) ? current : next[0]?.id ?? null;
+    });
+  }, []);
+
+  const loadScopeConversations = useCallback(async (nextProjectId: number | null, archived: boolean, navigation: number) => {
+    if (navigation !== scopeNavigation.current) return;
+    const request = ++scopeRequest.current;
+    setConversations(null);
+    try {
+      const entries = await projectApi.listConversations(nextProjectId, archived);
+      if (navigation !== scopeNavigation.current || request !== scopeRequest.current) return;
+      installScopeEntries(entries);
+    } catch (error) {
+      if (navigation !== scopeNavigation.current || request !== scopeRequest.current) return;
+      setConversations([]);
+      setProjectError(projectErrorLabel(error, t));
+    }
+  }, [installScopeEntries, t]);
+
+  async function pickProject() {
+    if (projectBusy || active || sending || pendingFolderSelection.current) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    try {
+      const selection = await projectApi.pickFolder();
+      if (!selection) return;
+      if (!projectWorkspaceMounted.current) {
+        await projectApi.discardFolder(selection.selectionId);
+        return;
+      }
+      pendingFolderSelection.current = selection;
+      setProjectSelectionExpired(false);
+      setProjectFolderSelection(selection);
+    } catch (error) {
+      setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function cancelProjectCreation() {
+    const selection = pendingFolderSelection.current;
+    if (!selection || projectBusy) return;
+    setProjectBusy(true);
+    try {
+      await projectApi.discardFolder(selection.selectionId);
+      pendingFolderSelection.current = null;
+      setProjectFolderSelection(null);
+      setProjectSelectionExpired(false);
+      setProjectError(null);
+    } catch (error) {
+      setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function confirmProjectCreation(name: string) {
+    const selection = pendingFolderSelection.current;
+    if (!selection || projectBusy || active || sending || projectSelectionExpired) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    const navigation = scopeRevision;
+    try {
+      const project = await projectApi.confirmFolder(selection.selectionId, name);
+      pendingFolderSelection.current = null;
+      if (!projectWorkspaceMounted.current) return;
+      setProjectFolderSelection(null);
+      setProjects((current) => [...current.filter((entry) => entry.id !== project.id), project]);
+      if (navigation !== scopeNavigation.current) return;
+      commitScopeNavigation(project.id, false, true, null);
+      setListQuery("");
+      setProjectNotice(project.created ? null : t("projects.duplicate"));
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+      const expired = code === "ProjectStaleContext" || code === "ProjectInvalidSelection";
+      setProjectSelectionExpired(expired);
+      setProjectError(expired ? t("projects.selectionExpired") : projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  function switchOrganization(value: boolean) {
+    commitScopeNavigation(null, false, value, null);
+    setListQuery("");
+    setProjectNotice(null);
+    setProjectError(null);
+  }
+
+  async function selectProject(project: ChatProject) {
+    const navigation = beginScopeNavigation();
+    setProjectError(null);
+    try {
+      const currentProject = await projectApi.get(project.id);
+      if (navigation !== scopeNavigation.current) return;
+      setProjects((current) => current.map((entry) => entry.id === currentProject.id ? currentProject : entry));
+      commitScopeNavigation(currentProject.id, false, true, null, navigation);
+      setListQuery("");
+      setProjectNotice(null);
+    } catch (error) {
+      if (navigation !== scopeNavigation.current) return;
+      setProjectError(projectErrorLabel(error, t));
+      setScopeRevision(navigation);
+    }
+  }
+
+  function openProjectMove(trigger: HTMLButtonElement) {
+    const details = trigger.closest("details");
+    moveReturnFocus.current = details?.querySelector("summary") ?? null;
+    details?.removeAttribute("open");
+    setProjectError(null);
+    setProjectMoveOpen(true);
+  }
+
+  async function renameProject(name: string) {
+    if (!selectedProject || projectBusy || active || sending) return false;
+    setProjectBusy(true);
+    setProjectError(null);
+    try {
+      const updated = await projectApi.rename(selectedProject.id, name);
+      setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+      return true;
+    } catch (error) {
+      setProjectError(projectErrorLabel(error, t));
+      return false;
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function moveProjectConversation(destination: number | null) {
+    if (!selected || projectBusy || active || sending) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    const navigation = scopeRevision;
+    try {
+      const receipt = await projectApi.moveConversation(selected.id, destination);
+      if (!receipt) return;
+      const context = receipt.contexts.find((entry) => entry.conversationId === selected.id);
+      if (!context) throw new Error("Missing committed conversation context");
+      setConversationContexts((current) => ({ ...current, [selected.id]: context }));
+      setProjectMoveOpen(false);
+      if (navigation !== scopeNavigation.current) return;
+      commitScopeNavigation(context.projectId, archivedView, context.projectId !== null, selected.id);
+      setListQuery("");
+    } catch (error) {
+      if (navigation === scopeNavigation.current) setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function removeProject() {
+    if (!selectedProject || projectBusy || active || sending) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    const navigation = scopeRevision;
+    try {
+      const receipt = await projectApi.remove(selectedProject.id);
+      if (!receipt) return;
+      setProjects((current) => current.filter((project) => project.id !== receipt.removedProjectId));
+      for (const id of receipt.deletedConversationIds) clearAttachments(id);
+      if (navigation !== scopeNavigation.current) return;
+      commitScopeNavigation(null, archivedView, false, selectedId);
+      setListQuery("");
+      setProjectNotice(t("projects.removed"));
+    } catch (error) {
+      if (navigation === scopeNavigation.current) setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function relocateProject() {
+    if (!selectedProject || projectBusy || active || sending) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    const navigation = scopeRevision;
+    try {
+      const updated = await projectApi.pickRelocate(selectedProject.id);
+      if (!updated) return;
+      setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+      await refreshConversations(navigation);
+    } catch (error) {
+      if (navigation === scopeNavigation.current) setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
   const isModelLoaded = useCallback(
     (alias: string) => (loaded ?? []).some((model) => matchesModelAlias(model, alias)),
     [loaded],
   );
 
   useEffect(() => {
-    let live = true;
+    void loadScopeConversations(projectId, archivedView, scopeRevision);
+    return () => { scopeRequest.current += 1; };
+  }, [projectId, archivedView, scopeRevision, loadScopeConversations]);
 
-    listConversations()
-      .then((next) => {
-        if (!live) {
-          return;
-        }
-
-        setConversations(next);
-        setSelectedId((current) => current ?? next[0]?.id ?? null);
-      })
-      .catch((error) => {
-        if (live) {
-          setConversations([]);
-          setBanner(toFoundryCommandError(error));
-        }
-      });
-
-    void refreshModels();
-
-    return () => {
-      live = false;
-    };
-  }, [refreshModels]);
+  useEffect(() => { void refreshModels(); }, [refreshModels]);
 
   useEffect(() => {
     if (!selectedModelAlias) {
@@ -443,9 +704,11 @@ export function ChatWorkspace({
   const handleStreamEvent = useCallback((event: StreamEvent) => {
     if (event.type === "started") {
       setConversations((current) =>
-        current ? mergeConversation(current, event.conversation) : current,
+        mergeVisibleConversation(current, event.conversation),
       );
-      setMessages((current) => mergeMessages(current, [event.userMessage, event.assistantMessage]));
+      if (selectedIdRef.current === event.conversation.id) {
+        setMessages((current) => mergeMessages(current, [event.userMessage, event.assistantMessage]));
+      }
 
       return;
     }
@@ -478,7 +741,7 @@ export function ChatWorkspace({
 
     finishedRef.current.add(event.requestId);
     setConversations((current) =>
-      current ? mergeConversation(current, event.conversation) : current,
+      mergeVisibleConversation(current, event.conversation),
     );
 
     const conversationId = event.conversation.id;
@@ -491,10 +754,10 @@ export function ChatWorkspace({
       })
       .catch(() => undefined);
 
-    if (event.type === "done") {
+    if (selectedIdRef.current === event.conversation.id) {
       setMessages((current) => mergeMessages(current, [event.message]));
-    } else {
-      setMessages((current) => mergeMessages(current, [event.message]));
+    }
+    if (event.type !== "done") {
       setBanner(new FoundryCommandError(event.error));
     }
 
@@ -513,41 +776,19 @@ export function ChatWorkspace({
     setDrafts((current) => ({ ...current, [selectedId]: value }));
   }
 
-  async function refreshConversations() {
-    try {
-      const next = await listConversations(archivedView);
-
-      setConversations(next);
-      setSelectedId((current) =>
-        current !== null && next.some((conversation) => conversation.id === current)
-          ? current
-          : (next[0]?.id ?? null),
-      );
-    } catch (error) {
-      setBanner(toFoundryCommandError(error));
-    }
+  async function refreshConversations(navigation: number) {
+    await loadScopeConversations(projectId, archivedView, navigation);
   }
 
   async function switchArchivedView() {
     const next = !archivedView;
 
-    setArchivedView(next);
-    setConversations(null);
-    setSelectedId(null);
+    commitScopeNavigation(projectId, next, projectsView, null);
     setListQuery("");
     setDeleteTarget(null);
     pendingJump.current = null;
     setHighlightId(null);
 
-    try {
-      const list = await listConversations(next);
-
-      setConversations(list);
-      setSelectedId(list[0]?.id ?? null);
-    } catch (error) {
-      setConversations([]);
-      setBanner(toFoundryCommandError(error));
-    }
   }
 
   async function toggleFavorite(conversation: Conversation) {
@@ -555,13 +796,25 @@ export function ChatWorkspace({
       return;
     }
 
+    const navigation = scopeNavigation.current;
     try {
       const updated = await setConversationFavorite(conversation.id, !conversation.favorite);
-
-      setConversations((current) => (current ? mergeConversation(current, updated) : current));
+      if (navigation !== scopeNavigation.current) return;
+      setConversations((current) => mergeVisibleConversation(current, updated));
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
     }
+  }
+
+  function removeDisplayedConversation(id: number) {
+    setConversations((current) => current?.filter((entry) => entry.id !== id) ?? current);
+    if (selectedIdRef.current !== id) return;
+    pendingJump.current = null;
+    setHighlightId(null);
+    setMessages([]);
+    if (selectionIntent.current?.id === id) selectionIntent.current = null;
+    selectedIdRef.current = null;
+    setSelectedId((current) => current === id ? null : current);
   }
 
   async function toggleArchived(conversation: Conversation) {
@@ -569,19 +822,13 @@ export function ChatWorkspace({
       return;
     }
 
+    const navigation = scopeNavigation.current;
     try {
       const updated = await setConversationArchived(conversation.id, !conversation.archived);
-      const remaining = (conversations ?? []).filter((entry) => entry.id !== updated.id);
-
-      setConversations(remaining);
-
-      if (selectedId === updated.id) {
-        pendingJump.current = null;
-        setHighlightId(null);
-        setSelectedId(remaining[0]?.id ?? null);
-      }
+      if (navigation !== scopeNavigation.current) return;
+      removeDisplayedConversation(updated.id);
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
     }
   }
 
@@ -593,6 +840,7 @@ export function ChatWorkspace({
     if (conversations?.some((conversation) => conversation.id === openConversationId)) {
       pendingJump.current = null;
       setHighlightId(null);
+      selectionIntent.current = { navigation: scopeNavigation.current, id: openConversationId };
       setSelectedId(openConversationId);
       onOpenConversationHandled?.();
 
@@ -601,42 +849,71 @@ export function ChatWorkspace({
 
     let live = true;
 
-    refreshConversations()
-      .then(() => {
-        if (live) {
-          setSelectedId(openConversationId);
-          onOpenConversationHandled?.();
-        }
-      })
-      .catch(() => {
-        if (live) {
-          onOpenConversationHandled?.();
-        }
-      });
+    openScopedConversation(openConversationId).finally(() => {
+      if (live) onOpenConversationHandled?.();
+    });
 
     return () => {
       live = false;
     };
-  }, [openConversationId, conversations, onOpenConversationHandled]);
+  }, [openConversationId, onOpenConversationHandled]);
+
+  async function openScopedConversation(id: number): Promise<boolean> {
+    const navigation = beginScopeNavigation();
+    try {
+      const context = await projectApi.conversationContext(id);
+      let nextArchived = false;
+      let entries = await projectApi.listConversations(context.projectId, false);
+      if (!entries.some((entry) => entry.conversation.id === id)) {
+        nextArchived = true;
+        entries = await projectApi.listConversations(context.projectId, true);
+      }
+      if (!entries.some((entry) => entry.conversation.id === id)) {
+        if (navigation !== scopeNavigation.current) return false;
+        setProjectError(t("projects.errors.ProjectNotFound"));
+        setScopeRevision(navigation);
+        return false;
+      }
+      if (context.projectId !== null) {
+        const project = await projectApi.get(context.projectId);
+        if (navigation !== scopeNavigation.current) return false;
+        setProjects((current) => [...current.filter((entry) => entry.id !== project.id), project]);
+      }
+      if (navigation !== scopeNavigation.current) return false;
+      commitScopeNavigation(context.projectId, nextArchived, context.projectId !== null, id, navigation);
+      installScopeEntries(entries);
+      setListQuery("");
+      setProjectNotice(null);
+      setSelectedId(id);
+      return true;
+    } catch (error) {
+      if (navigation !== scopeNavigation.current) return false;
+      setProjectError(projectErrorLabel(error, t));
+      setScopeRevision(navigation);
+      return false;
+    }
+  }
 
   async function startConversation() {
     const modelAlias = chatModels[0]?.alias;
 
-    if (!modelAlias || active) {
+    if (!modelAlias || active || sending || projectBusy) {
       return;
     }
 
+    const navigation = scopeNavigation.current;
+    setProjectError(null);
+    setProjectBusy(true);
     try {
-      const conversation = await createConversation(modelAlias);
+      const entry = await projectApi.createConversation(projectId, modelAlias);
+      if (navigation !== scopeNavigation.current) return;
+      const conversation = entry.conversation;
+      setConversationContexts((current) => ({ ...current, [conversation.id]: entry.context }));
+      selectionIntent.current = { navigation, id: conversation.id };
 
       if (archivedView) {
-        setArchivedView(false);
-
-        try {
-          setConversations(await listConversations(false));
-        } catch {
-          setConversations([conversation]);
-        }
+        commitScopeNavigation(projectId, false, projectsView, conversation.id, navigation);
+        setConversations([conversation]);
       } else {
         setConversations((current) => mergeConversation(current ?? [], conversation));
       }
@@ -644,7 +921,10 @@ export function ChatWorkspace({
       setSelectedId(conversation.id);
       setBanner(null);
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation !== scopeNavigation.current) return;
+      setProjectError(projectErrorLabel(error, t));
+    } finally {
+      setProjectBusy(false);
     }
   }
 
@@ -692,19 +972,20 @@ export function ChatWorkspace({
     }
 
     setReconnecting(true);
+    const navigation = scopeRevision;
 
     try {
       await startServer();
       await refreshModels();
 
       if (refreshList) {
-        await refreshConversations();
+        await refreshConversations(navigation);
       }
 
-      setBanner(null);
+      if (navigation === scopeNavigation.current) setBanner(null);
       return true;
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
       return false;
     } finally {
       setReconnecting(false);
@@ -796,14 +1077,16 @@ export function ChatWorkspace({
     const removed = new Set(receipt.removed);
 
     setConversations((current) =>
-      current ? mergeConversation(current, receipt.conversation) : current,
+      mergeVisibleConversation(current, receipt.conversation),
     );
-    setMessages((current) =>
-      mergeMessages(
-        current.filter((message) => !removed.has(message.id)),
-        [receipt.userMessage, receipt.assistantMessage],
-      ),
-    );
+    if (selectedIdRef.current === conversationId) {
+      setMessages((current) =>
+        mergeMessages(
+          current.filter((message) => !removed.has(message.id)),
+          [receipt.userMessage, receipt.assistantMessage],
+        ),
+      );
+    }
 
     if (!finishedRef.current.has(receipt.requestId)) {
       const next = {
@@ -916,15 +1199,22 @@ export function ChatWorkspace({
   }
 
   function selectConversation(id: number) {
+    selectionIntent.current = { navigation: scopeNavigation.current, id };
+    selectedIdRef.current = id;
     pendingJump.current = null;
     setHighlightId(null);
     setSelectedId(id);
   }
 
-  function selectSearchHit(hit: SearchHit) {
+  async function selectSearchHit(hit: SearchHit) {
+    if (!conversations?.some((conversation) => conversation.id === hit.conversationId)) {
+      if (!(await openScopedConversation(hit.conversationId))) return;
+    }
+    selectionIntent.current = { navigation: scopeNavigation.current, id: hit.conversationId };
     if (hit.conversationId !== selectedIdRef.current) {
       setSelectedId(hit.conversationId);
     }
+    selectedIdRef.current = hit.conversationId;
 
     pendingJump.current = {
       conversationId: hit.conversationId,
@@ -1037,20 +1327,19 @@ export function ChatWorkspace({
       return;
     }
 
+    const navigation = scopeNavigation.current;
     try {
       const change = await setConversationModel(selected.id, modelAlias);
-
-      setConversations((current) =>
-        current ? mergeConversation(current, change.conversation) : current,
-      );
+      if (navigation !== scopeNavigation.current) return;
+      setConversations((current) => mergeVisibleConversation(current, change.conversation));
 
       const divider = change.divider;
 
-      if (divider) {
+      if (divider && selectedIdRef.current === change.conversation.id) {
         setMessages((current) => mergeMessages(current, [divider]));
       }
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
     }
   }
 
@@ -1071,16 +1360,14 @@ export function ChatWorkspace({
     }
 
     setRenaming(true);
-
+    const navigation = scopeNavigation.current;
     try {
       const conversation = await renameConversation(selected.id, title);
-
-      setConversations((current) =>
-        current ? mergeConversation(current, conversation) : current,
-      );
+      if (navigation !== scopeNavigation.current) return;
+      setConversations((current) => mergeVisibleConversation(current, conversation));
       setRenameOpen(false);
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
     } finally {
       setRenaming(false);
     }
@@ -1094,22 +1381,10 @@ export function ChatWorkspace({
     }
 
     setDeleting(true);
-
+    const navigation = scopeNavigation.current;
     try {
       await deleteConversation(target.id);
-
-      const remaining = (conversations ?? []).filter(
-        (conversation) => conversation.id !== target.id,
-      );
-
-      setConversations(remaining);
-
-      if (selectedId === target.id) {
-        pendingJump.current = null;
-        setHighlightId(null);
-        setMessages([]);
-        setSelectedId(remaining[0]?.id ?? null);
-      }
+      if (navigation === scopeNavigation.current) removeDisplayedConversation(target.id);
 
       setDrafts((current) => {
         const next = { ...current };
@@ -1119,9 +1394,9 @@ export function ChatWorkspace({
         return next;
       });
       clearAttachments(target.id);
-      setDeleteTarget(null);
+      setDeleteTarget((current) => current?.id === target.id ? null : current);
     } catch (error) {
-      setBanner(toFoundryCommandError(error));
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
     } finally {
       setDeleting(false);
     }
@@ -1282,6 +1557,7 @@ export function ChatWorkspace({
   }, [conversations, listQuery, t]);
 
   useEffect(() => {
+    if (conversations === null) return;
     if (filteredConversations.length === 0) {
       setSelectedId(null);
       return;
@@ -1296,14 +1572,39 @@ export function ChatWorkspace({
     if (selectedId === null || !filteredConversations.some((conversation) => conversation.id === selectedId)) {
       setSelectedId(first.id);
     }
-  }, [filteredConversations, selectedId]);
+  }, [conversations, filteredConversations, selectedId]);
+
+  const projectContext = selectedProject ? (
+    <ProjectContext
+      key={selectedProject.id}
+      project={selectedProject}
+      mode={selectedId === null ? undefined : conversationContexts[selectedId]?.mode}
+      disabled={actionsDisabled}
+      busy={projectBusy}
+      error={projectError}
+      onRename={renameProject}
+      onRemove={() => void removeProject()}
+      onRelocate={() => void relocateProject()}
+    />
+  ) : null;
 
   return (
     <>
       <ContextList
-        title={archivedView ? t("chat.archivedTitle") : t("chat.listTitle")}
+        title={projectsView ? t("projects.title") : archivedView ? t("chat.archivedTitle") : t("chat.listTitle")}
         action={
           <div className="flex items-center gap-0.5">
+            {projectsView ? (
+              <IconButton
+                label={t("projects.new")}
+                onClick={() => void pickProject()}
+                disabled={projectBusy || actionsDisabled}
+                className={projectControlFocus}
+              >
+                {selectedProject ? <FolderIcon size={14} /> : <PlusIcon size={15} />}
+              </IconButton>
+            ) : null}
+            {!projectsView || selectedProject ? <>
             <IconButton
               label={archivedView ? t("chat.archivedBack") : t("chat.archivedTitle")}
               onClick={() => void switchArchivedView()}
@@ -1320,14 +1621,33 @@ export function ChatWorkspace({
             <IconButton
               label={t("chat.new")}
               onClick={() => void startConversation()}
-              disabled={!chatModels.length || active !== null}
+              disabled={!chatModels.length || actionsDisabled || projectBusy}
             >
               <PlusIcon size={15} />
             </IconButton>
+            </> : null}
           </div>
         }
         toolbar={
-          listFilterOpen || listQuery.trim() ? (
+          <div className="space-y-2">
+          <ProjectNavigation projectsView={projectsView} onChange={switchOrganization} />
+          {selectedProject ? (
+            <div className="min-w-0">
+              <button
+                type="button"
+                className={cx("text-[12px] text-primary", projectControlFocus)}
+                onClick={() => switchOrganization(true)}
+              >
+                {t("projects.all")}
+              </button>
+              <p className="mt-1 truncate text-[12px] font-medium text-primary" title={selectedProject.name}>
+                {selectedProject.name}
+              </p>
+            </div>
+          ) : null}
+          {projectError ? <p role="alert" className="text-[12px] leading-relaxed text-danger">{projectError}</p> : null}
+          {projectNotice ? <p role="status" className="text-[12px] leading-relaxed text-primary">{projectNotice}</p> : null}
+          {(!projectsView || selectedProject) && (listFilterOpen || listQuery.trim()) ? (
             <div className="relative">
               <SearchIcon
                 size={13}
@@ -1359,10 +1679,20 @@ export function ChatWorkspace({
                 </button>
               ) : null}
             </div>
-          ) : null
+          ) : null}
+          </div>
         }
       >
-        {conversations === null ? (
+        {projectsView && !selectedProject ? (
+          <ProjectsPanel
+            projects={projects}
+            selectedId={projectId}
+            loading={projectsLoading}
+            error={projectsLoadError}
+            onSelect={selectProject}
+            onRetry={() => void reloadProjects()}
+          />
+        ) : conversations === null ? (
           <div className="flex justify-center py-6">
             <Spinner size={14} className="text-tertiary" />
           </div>
@@ -1396,7 +1726,7 @@ export function ChatWorkspace({
       </ContextList>
 
       {selected ? (
-        <section className="flex h-full min-h-0 flex-col bg-canvas">
+        <section className="flex h-full min-h-0 min-w-0 flex-col bg-canvas">
           <header
             className="flex h-[var(--titlebar-inset)] shrink-0 items-center justify-between gap-3 border-b border-line px-5"
             data-tauri-drag-region
@@ -1422,6 +1752,14 @@ export function ChatWorkspace({
                     {usage ? <TokenUsageBadge usage={usage} /> : null}
                   </div>
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={actionsDisabled || projectBusy}
+                      onClick={(event) => openProjectMove(event.currentTarget)}
+                      className={cx("rounded-[7px] border border-line px-2.5 py-1.5 text-[12px] text-primary hover:bg-hover disabled:opacity-50", projectControlFocus)}
+                    >
+                      {t("projects.move")}
+                    </button>
                     <ExportMenu
                       disabled={active !== null}
                       busy={exporting}
@@ -1460,6 +1798,8 @@ export function ChatWorkspace({
               </details>
             </div>
           </header>
+
+          {projectContext}
 
           {banner ? (
             <ErrorBanner
@@ -1546,16 +1886,17 @@ export function ChatWorkspace({
           />
         </section>
       ) : (
-        <section className="flex h-full min-h-0 flex-col bg-canvas">
+        <section className="flex h-full min-h-0 min-w-0 flex-col bg-canvas">
           <header
             className="flex h-[var(--titlebar-inset)] shrink-0 items-center border-b border-line px-5"
             data-tauri-drag-region
             onMouseDown={dragWindowFromMouseDown}
           >
-            <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-primary">
-              {t("chat.title")}
+            <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-primary" title={selectedProject?.name}>
+              {selectedProject?.name ?? t("chat.title")}
             </h1>
           </header>
+          {projectContext}
           {banner ? (
             <ErrorBanner
               error={banner}
@@ -1592,6 +1933,27 @@ export function ChatWorkspace({
         </section>
       )}
 
+      {projectFolderSelection ? (
+        <ProjectCreateDialog
+          key={projectFolderSelection.selectionId}
+          selection={projectFolderSelection}
+          busy={projectBusy}
+          error={projectError}
+          expired={projectSelectionExpired}
+          onCancel={() => void cancelProjectCreation()}
+          onConfirm={confirmProjectCreation}
+        />
+      ) : null}
+      {projectMoveOpen ? (
+        <ProjectMoveDialog
+          projects={projects}
+          projectId={projectId}
+          busy={projectBusy}
+          error={projectError}
+          onClose={() => setProjectMoveOpen(false)}
+          onMove={moveProjectConversation}
+        />
+      ) : null}
       <Modal open={renameOpen} title={t("chat.renameTitle")} onClose={() => setRenameOpen(false)}>
         <form
           onSubmit={(event) => {
@@ -1724,6 +2086,10 @@ function ErrorBanner({
       </div>
     </div>
   );
+}
+
+function mergeVisibleConversation(current: Conversation[] | null, updated: Conversation): Conversation[] | null {
+  return current?.some((entry) => entry.id === updated.id) ? mergeConversation(current, updated) : current;
 }
 
 function isChatModel(model: LoadedModel): boolean {

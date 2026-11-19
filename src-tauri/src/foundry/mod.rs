@@ -1,3 +1,4 @@
+pub mod agent_commands;
 pub mod app;
 pub mod attachments;
 pub mod backend;
@@ -18,10 +19,13 @@ pub mod lifecycle_commands;
 pub mod local_inference;
 pub mod model_cache;
 pub mod params;
+pub mod permission_commands;
 pub mod policy;
 pub mod project_commands;
+pub mod project_selection;
 pub mod resources;
 pub mod server;
+pub mod snapshot_commands;
 pub mod speech;
 pub mod vectorize;
 

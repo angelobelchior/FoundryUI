@@ -102,14 +102,12 @@ export function ConversationList({
                     openMenu(conversation, rect.right - 12, rect.top + 26);
                   }
                 }}
-                disabled={disabled}
                 aria-current={selected ? "true" : undefined}
                 className={cx(
                   "flex w-full flex-col gap-1 rounded-[var(--item-radius)] border px-[var(--item-pad-x)] py-[var(--item-pad-y)] text-left transition-colors",
                   selected
                     ? "border-line-strong bg-elevated shadow-[var(--shadow-thumb)]"
                     : "border-transparent hover:border-line hover:bg-hover",
-                  disabled && "cursor-not-allowed opacity-60",
                 )}
               >
                 <span className="flex w-full min-w-0 items-center gap-1.5">

@@ -1,0 +1,234 @@
+{
+  "state": "empty-projects",
+  "supportedDesktop": true,
+  "note": null,
+  "unhandledCommands": [],
+  "projectCreationCommands": [],
+  "dialogFields": [],
+  "normalStateFailureToastCount": 0,
+  "viewportWidth": 960,
+  "viewportHeight": 640,
+  "layoutWidth": 960,
+  "scrollWidth": 960,
+  "bodyWidth": 960,
+  "bodyMinWidth": "0px",
+  "scrollX": 0,
+  "scrollY": 0,
+  "fonts": "loaded",
+  "dialogBounds": null,
+  "focus": {
+    "tag": "BUTTON",
+    "id": "",
+    "label": null
+  },
+  "focusedControlOutline": {
+    "text": "Projects",
+    "color": "rgb(29, 29, 31)",
+    "backgroundColor": "rgba(120, 120, 128, 0.18)",
+    "ancestorBackgrounds": [
+      "rgba(120, 120, 128, 0.18)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgb(245, 246, 250)",
+      "rgb(245, 246, 250)",
+      "rgba(0, 0, 0, 0)",
+      "rgb(245, 246, 250)",
+      "rgba(0, 0, 0, 0)"
+    ],
+    "fontSize": "12px",
+    "opacity": "1",
+    "focusVisible": false,
+    "outlineColor": "rgb(29, 29, 31)",
+    "outlineStyle": "none",
+    "outlineWidth": "3px",
+    "outlineOffset": "0px"
+  },
+  "criticalNewTextColors": [
+    {
+      "text": "Chat",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(120, 120, 128, 0.18)",
+      "ancestorBackgrounds": [
+        "rgba(120, 120, 128, 0.18)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Speech",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Embeddings",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Conversations",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "Projects",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(120, 120, 128, 0.18)",
+      "ancestorBackgrounds": [
+        "rgba(120, 120, 128, 0.18)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "No projects yet",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "12px",
+      "opacity": "1"
+    },
+    {
+      "text": "Choose a folder to organize conversations in a project.",
+      "color": "rgb(29, 29, 31)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "11px",
+      "opacity": "1"
+    },
+    {
+      "text": "Models",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Settings",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    },
+    {
+      "text": "Keyboard shortcuts",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "13px",
+      "opacity": "1"
+    }
+  ],
+  "disabledControls": []
+}

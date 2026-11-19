@@ -256,16 +256,24 @@ impl GenerationRegistry {
         ids: &[i64],
         operation: impl FnOnce() -> T,
     ) -> Option<T> {
+        self.with_generation_barrier(|running| {
+            if running.iter().any(|id| ids.contains(id)) {
+                None
+            } else {
+                Some(operation())
+            }
+        })
+    }
+
+    pub fn with_generation_barrier<T>(&self, operation: impl FnOnce(&[i64]) -> T) -> T {
         let running = lock(&self.running);
-        if running
+        let ids = running
             .values()
-            .any(|generation| ids.contains(&generation.conversation_id))
-        {
-            return None;
-        }
-        let result = operation();
+            .map(|generation| generation.conversation_id)
+            .collect::<Vec<_>>();
+        let result = operation(&ids);
         drop(running);
-        Some(result)
+        result
     }
 
     fn finish(&self, request_id: &str) {

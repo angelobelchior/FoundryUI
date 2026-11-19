@@ -1,9 +1,21 @@
 import type { Page } from "@playwright/test";
+import type { ChatProject } from "../../../src/lib/projects";
 
 type InstallMockOptions = {
   language?: "en" | "pt-BR" | "es";
   workspace?: "chat" | "models" | "speech" | "embeddings" | "settings";
   onboarding?: boolean;
+  projects?: {
+    entries?: ChatProject[];
+    conversations?: Array<{ title: string; projectId: number | null; content?: string }>;
+    picks?: Array<(ChatProject & { created: boolean }) | null>;
+    confirmations?: Array<ChatProject & { created: boolean }>;
+    removals?: Array<"keep" | "delete" | "cancel">;
+    relocations?: Array<ChatProject | null>;
+    failures?: Record<string, string[]>;
+    moves?: Array<"move" | "cancel">;
+    holdGeneration?: boolean;
+  };
 };
 
 export async function installFoundryMock(page: Page, options: InstallMockOptions = {}) {
@@ -242,6 +254,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
       }
 
       for (let index = 0; index < messages.length; index += 1) {
+        if (config.projects?.holdGeneration && (messages[index] as { type?: string }).type === "done") continue;
         callback({ index, message: messages[index] });
       }
 
@@ -305,6 +318,35 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
       return conversation;
     }
 
+    const projects = deepClone(config.projects?.entries ?? []);
+    const projectPicks = deepClone(config.projects?.picks ?? []);
+    const projectConfirmations = deepClone(config.projects?.confirmations ?? []);
+    const pendingProjectSelections = new Map<string, NonNullable<(typeof projectPicks)[number]>>();
+    let nextProjectSelectionId = 1;
+    const projectRemovals = [...(config.projects?.removals ?? [])];
+    const projectRelocations = deepClone(config.projects?.relocations ?? []);
+    const projectFailures = deepClone(config.projects?.failures ?? {});
+    const projectMoves = [...(config.projects?.moves ?? [])];
+    const projectCalls: Array<{ command: string; payload: Record<string, unknown> }> = [];
+    const calls: Array<{ command: string; payload: Record<string, unknown> }> = [];
+    (window as unknown as Record<string, unknown>).__foundryProjectCalls = projectCalls;
+    (window as unknown as Record<string, unknown>).__foundryCalls = calls;
+    const unhandledCalls: string[] = [];
+    (window as unknown as Record<string, unknown>).__foundryUnhandledCalls = unhandledCalls;
+    const contexts = new Map<number, { conversationId: number; projectId: number | null; revision: number; mode: "review" | "automatic" }>();
+    function conversationContext(id: number) {
+      if (!contexts.has(id)) contexts.set(id, { conversationId: id, projectId: null, revision: 1, mode: "review" });
+      return contexts.get(id)!;
+    }
+    for (const fixture of config.projects?.conversations ?? []) {
+      const conversation = createConversation("qwen3-0.6b");
+      conversation.title = fixture.title;
+      conversationContext(conversation.id).projectId = fixture.projectId;
+      if (fixture.content) {
+        state.messages[conversation.id].push({ id: state.nextMessageId++, conversationId: conversation.id, seq: 1, role: "user", content: fixture.content, reasoning: "", modelAlias: null, params: null, usage: null, error: null, status: "complete", attachments: [], createdAt: now, updatedAt: now });
+      }
+    }
+
     function normalizeConversations() {
       state.conversations.sort(
         (left, right) =>
@@ -345,6 +387,121 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         return `asset://${path}`;
       },
       async invoke(command: string, payload: Record<string, unknown> = {}) {
+        calls.push({ command, payload: deepClone(payload) });
+        if (command.startsWith("projects_")) {
+          projectCalls.push({ command, payload: deepClone(payload) });
+          const code = projectFailures[command]?.shift();
+          if (code) {
+            if (command === "projects_confirm_folder" && code === "ProjectInvalidSelection") pendingProjectSelections.delete(String(payload.selectionId));
+            throw { code, messageKey: `errors.${code}`, message: code, detail: null };
+          }
+        }
+        if (command === "projects_list") return deepClone(projects);
+        if (command === "projects_pick_folder") {
+          const selection = projectPicks.shift() ?? null;
+          if (!selection) return null;
+          const selectionId = `project-folder-${nextProjectSelectionId++}`;
+          pendingProjectSelections.set(selectionId, selection);
+          const { created, ...project } = selection;
+          return deepClone({ selectionId, folderPath: selection.folderPath, defaultName: selection.name, existingProject: created ? null : project });
+        }
+        if (command === "projects_confirm_folder") {
+          const selectionId = String(payload.selectionId);
+          const selection = pendingProjectSelections.get(selectionId);
+          if (!selection) throw { code: "ProjectInvalidSelection", messageKey: "errors.ProjectInvalidSelection", message: "Folder selection expired", detail: null };
+          const name = String(payload.name ?? "").trim();
+          if (!name) throw { code: "ProjectInvalidInput", messageKey: "errors.ProjectInvalidInput", message: "Enter a project name", detail: null };
+          const committed = projectConfirmations.shift();
+          if (committed) {
+            const { created: _created, ...project } = committed;
+            const index = projects.findIndex((entry) => entry.id === project.id);
+            if (index === -1) projects.push(project);
+            else projects[index] = project;
+            pendingProjectSelections.delete(selectionId);
+            return deepClone(committed);
+          }
+          const existing = projects.find((project) => project.id === selection.id || project.folderPath === selection.folderPath);
+          pendingProjectSelections.delete(selectionId);
+          if (existing) return deepClone({ ...existing, created: false });
+          const { created, ...project } = selection;
+          if (created) project.name = name;
+          projects.push(project);
+          return deepClone({ ...project, created });
+        }
+        if (command === "projects_discard_folder") {
+          pendingProjectSelections.delete(String(payload.selectionId));
+          return null;
+        }
+        if (command === "projects_pick_create") {
+          const selection = projectPicks.shift() ?? null;
+          if (selection?.created) {
+            const { created: _created, ...project } = selection;
+            projects.push(project);
+          }
+          return deepClone(selection);
+        }
+        if (command === "projects_get") {
+          const project = projects.find((entry) => entry.id === Number(payload.id));
+          if (!project) throw { code: "ProjectNotFound", messageKey: "errors.ProjectNotFound", message: "Project not found", detail: null };
+          return deepClone(project);
+        }
+        if (command === "projects_rename") {
+          const project = projects.find((entry) => entry.id === Number(payload.id))!;
+          project.name = String(payload.name);
+          return deepClone(project);
+        }
+        if (command === "projects_pick_relocate") {
+          const selection = projectRelocations.shift() ?? null;
+          if (selection) {
+            const project = projects.find((entry) => entry.id === selection.id)!;
+            if (project.bindingRevision !== selection.bindingRevision) {
+              for (const context of contexts.values()) {
+                if (context.projectId === project.id) context.revision += 1;
+              }
+            }
+            Object.assign(project, selection);
+          }
+          return deepClone(selection);
+        }
+        if (command === "projects_move_conversation") {
+          if (projectMoves.shift() === "cancel") return null;
+          const context = conversationContext(Number(payload.conversationId));
+          context.projectId = payload.destinationProjectId === null ? null : Number(payload.destinationProjectId);
+          context.revision += 1;
+          return deepClone({ contexts: [context], removedProjectId: null, deletedConversationIds: [] });
+        }
+        if (command === "projects_remove") {
+          const outcome = projectRemovals.shift() ?? "keep";
+          if (outcome === "cancel") return null;
+          const id = Number(payload.id);
+          const affected = state.conversations.filter((conversation) => conversationContext(conversation.id).projectId === id);
+          const deletedConversationIds = outcome === "delete" ? affected.map((conversation) => conversation.id) : [];
+          for (const conversation of affected) {
+            if (outcome === "delete") {
+              state.conversations = state.conversations.filter((entry) => entry.id !== conversation.id);
+              delete state.messages[conversation.id];
+            } else {
+              conversationContext(conversation.id).projectId = null;
+              conversationContext(conversation.id).revision += 1;
+            }
+          }
+          projects.splice(projects.findIndex((project) => project.id === id), 1);
+          return deepClone({ contexts: outcome === "keep" ? affected.map((conversation) => conversationContext(conversation.id)) : [], removedProjectId: id, deletedConversationIds });
+        }
+        if (command === "projects_conversation_context") {
+          const id = Number(payload.conversationId);
+          if (!findConversation(id)) throw { code: "ProjectNotFound", messageKey: "errors.ProjectNotFound", message: "Conversation not found", detail: null };
+          return deepClone(conversationContext(id));
+        }
+        if (command === "projects_list_conversations") {
+          return deepClone(state.conversations.filter((conversation) => conversation.archived === Boolean(payload.archived) && conversationContext(conversation.id).projectId === (payload.projectId ?? null)).map((conversation) => ({ conversation, context: conversationContext(conversation.id) })));
+        }
+        if (command === "projects_create_conversation") {
+          const conversation = createConversation(String(payload.modelAlias));
+          const context = conversationContext(conversation.id);
+          context.projectId = payload.projectId === null ? null : Number(payload.projectId);
+          return deepClone({ conversation, context });
+        }
         if (command === "cli_detect") {
           return {
             path: "/opt/homebrew/bin/foundry",
@@ -368,6 +525,23 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
 
         if (command === "workspace_snapshot") {
           return workspaceSnapshot();
+        }
+
+        if (command === "params_snapshot") {
+          return {
+            global: {},
+            model: {},
+            conversation: {},
+            resolved: {
+              temperature: { value: null, origin: "default" },
+              topP: { value: null, origin: "default" },
+              maxTokens: { value: null, origin: "default" },
+              seed: { value: null, origin: "default" },
+              stop: { value: null, origin: "default" },
+              reasoningEffort: { value: null, origin: "default" },
+              responseVerbosity: { value: null, origin: "default" },
+            },
+          };
         }
 
         if (command === "diagnostics_snapshot") {
@@ -693,7 +867,8 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         }
 
         if (command === "chat_search") {
-          return [];
+          const query = String(payload.query).toLocaleLowerCase();
+          return deepClone(state.conversations.flatMap((conversation) => (state.messages[conversation.id] ?? []).filter((message) => (payload.conversationId === null || payload.conversationId === conversation.id) && message.content.toLocaleLowerCase().includes(query)).map((message) => ({ conversationId: conversation.id, conversationTitle: conversation.title, messageId: message.id, role: message.role, snippet: message.content, createdAt: message.createdAt }))));
         }
 
         if (command === "speech_get_storage_settings") {
@@ -1263,6 +1438,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
           return null;
         }
 
+        unhandledCalls.push(command);
         throw {
           code: "CommandFailed",
           messageKey: "errors.CommandFailed",

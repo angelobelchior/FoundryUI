@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{AgentStore, AgentStoreError, AgentStoreResult, store_error};
 use crate::foundry::jobs::now_millis;
+use crate::foundry::resources::RootHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +36,42 @@ impl AgentStore<'_> {
         root_identity_key: &str,
         display_path: &str,
     ) -> AgentStoreResult<ProjectRecord> {
+        self.record_project_selection(name, root_identity_key, display_path)
+            .map(|(project, _)| project)
+    }
+
+    pub(super) fn record_project_selection(
+        &self,
+        name: &str,
+        root_identity_key: &str,
+        display_path: &str,
+    ) -> AgentStoreResult<(ProjectRecord, bool)> {
+        self.persist_project_selection(name, root_identity_key, display_path, None)
+    }
+
+    pub(super) fn record_project_selection_checked(
+        &self,
+        name: &str,
+        root_identity_key: &str,
+        display_path: &str,
+        root: &RootHandle,
+        expected: Option<&ProjectRecord>,
+    ) -> AgentStoreResult<(ProjectRecord, bool)> {
+        self.persist_project_selection(
+            name,
+            root_identity_key,
+            display_path,
+            Some((root, expected)),
+        )
+    }
+
+    fn persist_project_selection(
+        &self,
+        name: &str,
+        root_identity_key: &str,
+        display_path: &str,
+        selection: Option<(&RootHandle, Option<&ProjectRecord>)>,
+    ) -> AgentStoreResult<(ProjectRecord, bool)> {
         if name.trim().is_empty()
             || name.len() > 128
             || root_identity_key.is_empty()
@@ -48,19 +85,45 @@ impl AgentStore<'_> {
             return Err(AgentStoreError::InvalidInput);
         }
         let mut connection = self.database.connection();
-        let transaction = connection.transaction().map_err(store_error)?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(store_error)?;
+        if let Some((root, expected)) = selection {
+            let identity = root
+                .identity()
+                .map_err(|_| AgentStoreError::InvalidInput)?
+                .storage_key();
+            if identity != root_identity_key || root.display_path().to_str() != Some(display_path) {
+                return Err(AgentStoreError::StaleContext);
+            }
+            if let Some(expected) = expected {
+                let current = transaction.query_row(
+                    "SELECT id, name, root_identity_key, display_path, binding_revision FROM agent_projects WHERE id = ?1",
+                    [expected.id], project_from_row,
+                ).optional().map_err(store_error)?.ok_or(AgentStoreError::StaleContext)?;
+                if current.root_identity_key != root_identity_key
+                    || current.root_identity_key != expected.root_identity_key
+                    || current.display_path != expected.display_path
+                    || current.binding_revision != expected.binding_revision
+                {
+                    return Err(AgentStoreError::StaleContext);
+                }
+                transaction.commit().map_err(store_error)?;
+                return Ok((current, false));
+            }
+        }
         let now = now_millis();
-        transaction.execute(
+        let created = transaction.execute(
             "INSERT INTO agent_projects (name, root_identity_key, display_path, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(root_identity_key) DO NOTHING",
             params![name.trim(), root_identity_key, display_path, now],
-        ).map_err(store_error)?;
+        ).map_err(store_error)? == 1;
         let project = transaction.query_row(
             "SELECT id, name, root_identity_key, display_path, binding_revision FROM agent_projects WHERE root_identity_key = ?1",
             [root_identity_key], project_from_row,
         ).map_err(store_error)?;
         transaction.commit().map_err(store_error)?;
-        Ok(project)
+        Ok((project, created))
     }
 
     pub fn project(&self, id: i64) -> AgentStoreResult<ProjectRecord> {
