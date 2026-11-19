@@ -46,6 +46,7 @@ use foundry::project_commands::{
     projects_discard_folder, projects_get, projects_list, projects_list_conversations,
     projects_pick_create, projects_pick_folder, projects_pick_relocate, projects_rename,
 };
+use foundry::recovery_commands::{recovery_list, recovery_undo};
 use foundry::snapshot_commands::{
     snapshots_candidates, snapshots_capture, snapshots_get, snapshots_list, snapshots_remove,
 };
@@ -90,6 +91,8 @@ pub fn run() {
             authorization_revoke,
             authorization_pick_root,
             authorization_decide,
+            recovery_list,
+            recovery_undo,
             agent_run_start,
             agent_run_cancel,
             agent_execution_status,

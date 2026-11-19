@@ -10,6 +10,7 @@ mod network_tools;
 mod parser;
 mod provider;
 mod read_tools;
+mod recovery;
 mod schema;
 
 use crate::foundry::db::agent::AgentStore;
@@ -42,6 +43,7 @@ pub use context_budget::{
 pub use context_search::{SearchAuthorizer, SearchExecutor, with_retrieved_context};
 pub use network_tools::{NetworkAuthorizer, NetworkExecutor};
 pub use read_tools::{ReadAuthorizer, ReadExecutor};
+pub use recovery::{RecoverableChange, RecoveryError, RecoveryOutcome, list_recoverable, recover};
 
 pub fn register_agent_tools(registry: &mut ToolRegistry) -> Result<(), ToolSpecError> {
     read_tools::register(registry)?;

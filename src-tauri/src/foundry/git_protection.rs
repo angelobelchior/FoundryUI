@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -135,6 +135,13 @@ pub struct PreparedProtection {
     pub blob: Option<String>,
     pub size: u64,
     pub mode: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredContent {
+    pub kind: PreparedKind,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize)]
@@ -314,6 +321,111 @@ pub fn prepare(
         size,
         mode,
     })
+}
+
+pub fn read_recovery(
+    root: &RootHandle,
+    relative: &RelativePath,
+    reference: &str,
+) -> Result<RestoredContent, ProtectionError> {
+    validate_reference(reference)?;
+    let git = resolve().ok_or_else(|| failure(ProtectionReason::GitNotInstalled))?;
+    let repository = Repository::open(&git, root.display_path())
+        .map_err(|state| failure(state_reason(state)))?;
+    let commit = run_ok(
+        &git,
+        &repository.work_tree,
+        &["rev-parse", "--verify", &format!("{reference}^{{commit}}")],
+        &[],
+    )?
+    .text();
+    validate_object_id(&commit)?;
+    let git_path = repository.git_path(relative)?;
+    let literal = format!(":(literal){git_path}");
+    let listing = run_ok(
+        &git,
+        &repository.work_tree,
+        &["ls-tree", commit.as_str(), "--", literal.as_str()],
+        &[],
+    )?
+    .text();
+    if listing.is_empty() {
+        return Ok(RestoredContent {
+            kind: PreparedKind::Absence,
+            bytes: Vec::new(),
+        });
+    }
+    let object = listing
+        .split_whitespace()
+        .nth(2)
+        .filter(|object| object.len() >= 40 && object.len() <= 64)
+        .filter(|object| object.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(command_failure)?;
+    let bytes = run_bytes(
+        &git,
+        &repository.work_tree,
+        &["cat-file", "blob", object],
+        &[],
+        MAX_PROTECTED_BYTES,
+    )?;
+    Ok(RestoredContent {
+        kind: PreparedKind::Content,
+        bytes,
+    })
+}
+
+fn validate_reference(reference: &str) -> Result<(), ProtectionError> {
+    if !reference.starts_with(PRIVATE_REF_PREFIX)
+        || reference.contains("..")
+        || reference.ends_with(".lock")
+        || reference.len() > 256
+        || !reference
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte))
+    {
+        return Err(ProtectionError {
+            kind: ProtectionErrorKind::InvalidReference,
+            reason: ProtectionReason::GitError,
+        });
+    }
+    Ok(())
+}
+
+fn run_bytes(
+    git: &GitCli,
+    directory: &Path,
+    args: &[&str],
+    environment: &[(&str, &OsStr)],
+    max_bytes: usize,
+) -> Result<Vec<u8>, ProtectionError> {
+    let mut command = git.command(directory);
+    command.args(args);
+    for (key, value) in environment {
+        command.env(key, value);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|_| command_failure())?;
+    let stdout = child.stdout.take().ok_or_else(command_failure)?;
+    let mut bytes = Vec::new();
+    stdout
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| command_failure())?;
+    let status = child.wait().map_err(|_| command_failure())?;
+    if !status.success() {
+        return Err(command_failure());
+    }
+    if bytes.len() > max_bytes {
+        return Err(ProtectionError {
+            kind: ProtectionErrorKind::Unavailable,
+            reason: ProtectionReason::LimitExceeded,
+        });
+    }
+    Ok(bytes)
 }
 
 fn resolve() -> Option<GitCli> {

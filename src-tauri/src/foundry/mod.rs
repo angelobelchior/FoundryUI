@@ -28,6 +28,7 @@ pub mod permission_commands;
 pub mod policy;
 pub mod project_commands;
 pub mod project_selection;
+pub mod recovery_commands;
 pub mod resources;
 pub mod server;
 pub mod snapshot_commands;

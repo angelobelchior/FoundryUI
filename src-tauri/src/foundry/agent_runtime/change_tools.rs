@@ -295,12 +295,13 @@ impl ToolExecutor for ChangeExecutor {
         }
         match plan.apply(&root) {
             Ok(()) => {
+                let undo_available = prepared.is_ok();
                 let mut recovery = serde_json::to_value(&inspection).unwrap_or_else(|_| json!({}));
                 if let Ok(protection) = &prepared {
                     recovery["reference"] = json!(protection.reference);
                     recovery["commit"] = json!(protection.commit);
                 }
-                recovery["undoAvailable"] = json!(false);
+                recovery["undoAvailable"] = json!(undo_available);
                 ToolExecution::Succeeded {
                     summary: json!({
                         "status": "applied",
@@ -313,7 +314,7 @@ impl ToolExecutor for ChangeExecutor {
                         "deletions": plan.deletions,
                         "diff": plan.diff,
                         "diffTruncated": plan.diff_truncated,
-                        "undoAvailable": false,
+                        "undoAvailable": undo_available,
                         "recovery": recovery,
                     }),
                 }
@@ -872,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tracked_dirty_target_applies_and_reports_git_ready_without_undo() {
+    fn a_tracked_dirty_target_applies_and_reports_git_ready_with_undo() {
         let fixture = Fixture::project();
         assert!(initialize_repository(fixture._directory.path()));
         std::fs::write(fixture._directory.path().join("tracked.txt"), b"committed").expect("write");
@@ -902,7 +903,7 @@ mod tests {
         match execution {
             ToolExecution::Succeeded { summary } => {
                 assert_eq!(summary["status"], "applied");
-                assert_eq!(summary["undoAvailable"], false);
+                assert_eq!(summary["undoAvailable"], true);
                 assert_eq!(summary["recovery"]["repository"], "work_tree");
                 assert!(summary["recovery"]["warning"].is_null());
                 assert_eq!(summary["recovery"]["files"][0]["eligible"], true);
