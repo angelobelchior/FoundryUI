@@ -49,6 +49,19 @@ pub struct ResourceError {
 
 pub type ResourceResult<T> = Result<T, ResourceError>;
 
+impl ResourceError {
+    pub fn is_missing(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.raw_os_error == Some(libc::ENOENT)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.raw_os_error == Some(2)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RelativePath(String);
 

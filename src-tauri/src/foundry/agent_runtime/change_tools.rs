@@ -7,6 +7,7 @@ use super::parser::ToolCall;
 use super::schema::{RegisteredTool, ToolAvailability, ToolRegistry, ToolSpec, ToolSpecError};
 use crate::foundry::db::agent::authorization::{AuthorizationRevision, RequirementKind};
 use crate::foundry::db::agent::{ActionRecord, AgentStore, ContextFact};
+use crate::foundry::git_protection::{self, ProtectionOperation};
 use crate::foundry::policy as p;
 use crate::foundry::resources::RelativePath;
 
@@ -43,7 +44,12 @@ impl ToolExecutor for ChangeExecutor {
         _spec: &ToolSpec,
         host: &ToolHost<'_, '_>,
     ) -> ToolExecution {
-        let Some(operation) = call.arguments.get("operation").and_then(Value::as_str) else {
+        let Some(operation) = call
+            .arguments
+            .get("operation")
+            .and_then(Value::as_str)
+            .and_then(ProtectionOperation::parse)
+        else {
             return change_failure("change");
         };
         let Some(path) = call.arguments.get("path").and_then(Value::as_str) else {
@@ -73,8 +79,29 @@ impl ToolExecutor for ChangeExecutor {
             Ok(relative) => relative,
             Err(_) => return change_failure("change"),
         };
-        let current = root.read(&relative, MAX_CHANGE_BYTES).unwrap_or_default();
-        if operation != "create" {
+        let current = match operation {
+            ProtectionOperation::Create => match root.open_read(&relative) {
+                Ok(_) => {
+                    return ToolExecution::Failed {
+                        summary: json!({"status": "failed", "code": "conflict"}),
+                    };
+                }
+                Err(error) if error.is_missing() => Vec::new(),
+                Err(_) => return change_failure("change"),
+            },
+            ProtectionOperation::Edit | ProtectionOperation::Delete => {
+                match root.read(&relative, MAX_CHANGE_BYTES) {
+                    Ok(bytes) => bytes,
+                    Err(error) if error.is_missing() => {
+                        return ToolExecution::Failed {
+                            summary: json!({"status": "failed", "code": "conflict"}),
+                        };
+                    }
+                    Err(_) => return change_failure("change"),
+                }
+            }
+        };
+        if operation != ProtectionOperation::Create {
             let expected = call
                 .arguments
                 .get("base_version")
@@ -87,12 +114,13 @@ impl ToolExecutor for ChangeExecutor {
             }
         }
         let base = String::from_utf8_lossy(&current).into_owned();
-        let proposed = if operation == "delete" {
+        let proposed = if operation == ProtectionOperation::Delete {
             String::new()
         } else {
             proposed_content.to_string()
         };
         let diff = diff(&base, &proposed);
+        let protection = git_protection::inspect(&root, operation, &relative);
         let fact = ContextFact::ChangeSet {
             proposal_fingerprint: content_fingerprint(diff.as_bytes()),
             resource_keys: vec![resource.root_id.clone()],
@@ -111,7 +139,13 @@ impl ToolExecutor for ChangeExecutor {
             return change_failure("change");
         }
         ToolExecution::Failed {
-            summary: json!({"status": "failed", "code": "write_not_enabled", "diff": diff}),
+            summary: json!({
+                "status": "failed",
+                "code": "write_not_enabled",
+                "diff": diff,
+                "recovery": protection,
+                "undoAvailable": false,
+            }),
         }
     }
 }
@@ -431,6 +465,130 @@ mod tests {
             ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
             other => panic!("expected failure, got {other:?}"),
         }
+    }
+
+    fn run_git(directory: &std::path::Path, args: &[&str]) -> bool {
+        let Some(git) = crate::foundry::git_protection::git_executable() else {
+            return false;
+        };
+        std::process::Command::new(git)
+            .current_dir(directory)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    fn initialize_repository(directory: &std::path::Path) -> bool {
+        run_git(directory, &["init", "-q"])
+            && run_git(directory, &["commit", "--allow-empty", "-qm", "fixture"])
+    }
+
+    #[test]
+    fn an_untracked_target_is_reported_unprotected_without_claiming_undo() {
+        let fixture = Fixture::project();
+        assert!(initialize_repository(fixture._directory.path()));
+        std::fs::write(fixture._directory.path().join("notes.txt"), b"user work").expect("write");
+        let store = fixture.store();
+        let arguments = json!({
+            "operation": "edit",
+            "path": "notes.txt",
+            "content": "agent change",
+            "base_version": content_fingerprint(b"user work")
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+
+        let execution = run_executor(&store, &trusted, &call);
+
+        match execution {
+            ToolExecution::Failed { summary } => {
+                assert_eq!(summary["code"], "write_not_enabled");
+                assert_eq!(summary["undoAvailable"], false);
+                assert_eq!(summary["recovery"]["warning"]["code"], "unprotected_files");
+                assert_eq!(summary["recovery"]["files"][0]["reason"], "untracked");
+                assert_eq!(summary["recovery"]["files"][0]["eligible"], false);
+            }
+            other => panic!("expected failure, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("notes.txt")).expect("read"),
+            b"user work"
+        );
+    }
+
+    #[test]
+    fn a_tracked_dirty_target_reports_git_ready_but_not_undo_available() {
+        let fixture = Fixture::project();
+        assert!(initialize_repository(fixture._directory.path()));
+        std::fs::write(fixture._directory.path().join("tracked.txt"), b"committed").expect("write");
+        assert!(run_git(fixture._directory.path(), &["add", "tracked.txt"]));
+        assert!(run_git(
+            fixture._directory.path(),
+            &["commit", "-qm", "tracked"]
+        ));
+        std::fs::write(
+            fixture._directory.path().join("tracked.txt"),
+            b"user worktree",
+        )
+        .expect("write");
+        let store = fixture.store();
+        let arguments = json!({
+            "operation": "edit",
+            "path": "tracked.txt",
+            "content": "agent change",
+            "base_version": content_fingerprint(b"user worktree")
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+
+        let execution = run_executor(&store, &trusted, &call);
+
+        match execution {
+            ToolExecution::Failed { summary } => {
+                assert_eq!(summary["code"], "write_not_enabled");
+                assert_eq!(summary["undoAvailable"], false);
+                assert_eq!(summary["recovery"]["repository"], "work_tree");
+                assert!(summary["recovery"]["warning"].is_null());
+                assert_eq!(summary["recovery"]["files"][0]["tracked"], true);
+                assert_eq!(summary["recovery"]["files"][0]["worktree"], "unstaged");
+                assert_eq!(summary["recovery"]["files"][0]["eligible"], true);
+            }
+            other => panic!("expected failure, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("tracked.txt")).expect("read"),
+            b"user worktree"
+        );
+    }
+
+    #[test]
+    fn creating_a_file_that_already_exists_conflicts() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("existing.txt"), b"existing").expect("write");
+        let store = fixture.store();
+        let arguments = json!({"operation": "create", "path": "existing.txt", "content": "new"});
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+
+        let execution = run_executor(&store, &trusted, &call);
+
+        match execution {
+            ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
+            other => panic!("expected failure, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("existing.txt")).expect("read"),
+            b"existing"
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub mod download;
 pub mod embeddings;
 pub mod error;
 pub mod export;
+pub mod git_protection;
 pub mod harmony;
 pub mod http;
 pub mod instruction_commands;
