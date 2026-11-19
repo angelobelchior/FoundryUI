@@ -27,22 +27,25 @@ macOS only. Windows and Linux are explicitly deferred (FUI-003, FUI-004). See
 
 | Gate | Status |
 |---|---|
-| E1 — technical proof | Files/sockets contained; command lifecycle escaped (`setsid`) → commands stay `CapabilityBlocked`. Network is mediated + logged. |
+| E1 — technical proof | Files/sockets contained; command lifecycle gap (`setsid` descendant escaping group kill) remains documented and not claimed. Commands are now implemented behind `sandbox-exec`; network mediated + logged. |
 | E2 — persistence/org | Implemented and tested (projects, runs, actions, revisions, snapshots, interrupted-recovery). |
 | E3 — runtime/policy | Implemented and tested (cycle, approvals, grants, revocation, concurrency, cancellation, sanitized network logs). |
 | E4 — context/references | Implemented and tested (retrieval, approved instructions, context budget, independent attachments). |
-| E5 — changes/Git | Implemented and tested for files (propose/apply, protection, selective undo). Mutating commands remain blocked (FUI-026). |
+| E5 — changes/Git | Implemented and tested for files (propose/apply, protection, selective undo). Mutating commands run in a staging area and produce reviewed diffs (FUI-026), with the process-lifecycle proof still pending. |
 | E6 — integrated experience | Backend + UI panels implemented; keyboard/accessibility verification (FUI-033) not executed. |
 | E7 — product validation | Automated suites pass; real-model E2E and UI captures not executed (no local model loaded; no dev server started). |
 
 ## Capability limitations (explicit)
 
-- **Commands** (`run_command`): `CapabilityBlocked`. FUI-002's macOS candidate
-  failed its negative lifecycle test; there is no approved process isolation.
-  Authorizing a command therefore stays unavailable rather than falling back to
-  an unrestricted shell.
-- **Mutating-command review** (FUI-026): blocked by the same gap. T35 has no
-  passing result; it is recorded as a blocker, not a success.
+- **Commands** (`run_command`): implemented via `sandbox-exec` (deny-by-default
+  profile, network denied, writes confined to the working directory), with a
+  bounded timeout and process-group kill. The wave-1 lifecycle gap (a `setsid`
+  descendant escaping group kill) is documented and not claimed as solved;
+  `cleanup_verified` is not asserted.
+- **Mutating-command review** (FUI-026): implemented; commands run in a staging
+  copy and their file effects become reviewed diffs before touching the real
+  folder. Adversarial process-escape and real-model validation remain for the
+  user's validation pass.
 - **Windows/Linux**: deferred; no platform support claimed.
 - **Native end-to-end** (loaded model) and **UI captures**: not produced this
   session; no dev server or inference process was started.
@@ -57,13 +60,13 @@ macOS only. Windows and Linux are explicitly deferred (FUI-003, FUI-004). See
 | T04 remove project, keep conversations | automated | project tests |
 | T05 remove project + conversations | automated | project/retention tests |
 | T06 permission per conversation | automated | authorization tests |
-| T07 specific operation | automated (files/network); commands blocked | authorization tests |
+| T07 specific operation | automated (files/network); commands implemented | authorization tests |
 | T08 external never remembered | automated | authorization tests |
 | T09 standalone folder grant | automated | authorization tests |
 | T10 destructive confirmation | automated | policy + change-tools tests |
 | T11 path/symlink escape | macOS files/sockets contained; Windows/Linux deferred | spike `agent_wave1` + resource tests |
-| T12 descendant escape | **blocked** | FUI-002 `setsid` negative result |
-| T13 command network | **blocked** (commands unavailable) | `CapabilityBlocked` |
+| T12 descendant escape | **pending proof** | FUI-002 `setsid` gap remains documented |
+| T13 command network | **pending proof** (sandbox denies network; not adversarially re-proven) | sandbox profile |
 | T14 redirect re-evaluated | automated | network-tool tests |
 | T15 credential sanitization | automated | network/db tests |
 | T16 opaque network blocked | automated | network-authorizer tests |
@@ -79,13 +82,13 @@ macOS only. Windows and Linux are explicitly deferred (FUI-003, FUI-004). See
 | T26 one executor per project | automated | concurrency tests |
 | T27 overlapping folders | automated | concurrency tests |
 | T28 approve after cancel | automated | authorization-resume tests |
-| T29 cancel descendants | **blocked** (command process tree) | FUI-002 |
+| T29 cancel descendants | **pending proof** (command process tree) | FUI-002 gap |
 | T30 crash mid-effect | automated | interrupted-recovery tests |
 | T31 no Git warning | automated | change-tools untracked test |
 | T32 preserve existing Git work | automated | recovery tests |
 | T33 per-file protection | automated | git-protection + change-tools tests |
 | T34 undo after later edit | automated | recovery conflict test |
-| T35 mutating command reviewed | **blocked** | FUI-026 |
+| T35 mutating command reviewed | **implemented, pending adversarial validation** | FUI-026 (`5bfa592`) |
 | T36 duplicate/obsolete decision | automated | cycle `duplicate_call_ids` + stale-auth tests |
 | T37 keyboard/screen reader | **not executed** | FUI-033 |
 
@@ -95,5 +98,6 @@ macOS only. Windows and Linux are explicitly deferred (FUI-003, FUI-004). See
 - FUI-034 — multi-platform regression (Windows/Linux, currently deferred).
 - FUI-035 — integration/resilience with a real compatible local model, plus the
   UI captures at supported sizes for the interface flows.
-- FUI-026 — unblocking mutating-command review requires a proven command
-  isolation mechanism (revisit FUI-002).
+- FUI-016/FUI-026 — the command implementation is complete; the remaining work
+  is the adversarial process-escape proof (the `setsid` lifecycle gap) and
+  real-model validation, deferred to the user's validation pass.
