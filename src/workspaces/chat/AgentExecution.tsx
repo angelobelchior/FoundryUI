@@ -44,7 +44,24 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
       {!compatible ? <p className="mt-2">{t("execution.incompatible")}</p> : null}
       {agent.enabled && hasAttachments ? <p className="mt-2">{t("execution.attachments")}</p> : null}
       {agent.enabled || status?.execution ? <p className="mt-2">{t("execution.limits")}</p> : null}
-      {stage === "pending" ? <p className="mt-2">{t("execution.pendingHint")}</p> : null}
+      {stage === "pending" ? <p className="mt-2">{t(status?.continuationAvailable ? "execution.livePendingHint" : "execution.pendingHint")}</p> : null}
+      {status?.pendingRequests?.length ? <div className="mt-2 max-h-48 overflow-y-auto">
+        {status.pendingRequests.map((request) => {
+          const previewAvailable = request.requirements.length > 0 && request.requirements.every((requirement) => requirement.previewAvailable);
+          return <div key={request.id} className="border-t border-line py-2">
+            <p className="font-medium">{t("execution.request", { id: request.id })}</p>
+            {request.requirements.map((requirement, index) => <p key={`${requirement.constraintsFingerprint}-${index}`} className="whitespace-pre-wrap break-words">{requirement.target}</p>)}
+            {!previewAvailable ? <p className="mt-1">{t("execution.noPreview")}</p> : null}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping || !status.continuationAvailable || !previewAvailable}
+                onClick={() => void agent.decide(request.id, { decision: "approve", remember: false })}>{t("execution.allowOnce")}</button>
+              <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping}
+                onClick={() => void agent.decide(request.id, { decision: "deny" })}>{t("execution.deny")}</button>
+              {agent.deciding === request.id ? <span role="status">{t("execution.waitingDecision")}</span> : null}
+            </div>
+          </div>;
+        })}
+      </div> : null}
       {stage === "uncertain" ? <p role="status" className="mt-2">{t("execution.uncertainHint")}</p> : null}
       {blocker ? <div className="mt-2 flex flex-wrap items-center gap-2">
         <span>{t("execution.occupied", { title: status.blockerTitle || t("chat.untitled"), id: blocker.conversation_id })}</span>

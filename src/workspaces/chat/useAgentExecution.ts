@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { executionApi, executionBusy, type AgentRunEvent, type ExecutionStatus } from "../../lib/execution";
+import { authorizationApi, type AuthorizationDecision } from "../../lib/authorization";
 
 export function useAgentExecution(conversationId: number | null, onMessagesChanged: (id: number) => void) {
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
@@ -10,6 +11,7 @@ export function useAgentExecution(conversationId: number | null, onMessagesChang
   const [changingMode, setChangingMode] = useState(false);
   const [error, setError] = useState(false);
   const [actionError, setActionError] = useState(false);
+  const [deciding, setDeciding] = useState<number | null>(null);
   const selection = useRef(conversationId);
   selection.current = conversationId;
   const onMessages = useRef(onMessagesChanged);
@@ -37,6 +39,7 @@ export function useAgentExecution(conversationId: number | null, onMessagesChang
     setChangingMode(false);
     setError(false);
     setActionError(false);
+    setDeciding(null);
     void refresh();
     let disposed = false;
     const subscription = listen<AgentRunEvent>("agent-run-event", ({ payload }) => {
@@ -113,5 +116,21 @@ export function useAgentExecution(conversationId: number | null, onMessagesChang
     void refresh();
   }
 
-  return { status: visibleStatus, enabled, setEnabled, busy, stopping, changingMode, error: error || actionError, refresh, retry, start, cancel, mode };
+  async function decide(requestId: number, decision: AuthorizationDecision) {
+    if (conversationId === null || deciding !== null || !visibleStatus) return;
+    const request = visibleStatus.pendingRequests?.find((request) => request.id === requestId);
+    if (!request || (decision.decision === "approve" && (!visibleStatus.continuationAvailable || request.requirements.length === 0 || request.requirements.some((requirement) => !requirement.previewAvailable)))) return;
+    const id = conversationId;
+    setDeciding(requestId);
+    try {
+      await authorizationApi.decide(id, requestId, decision);
+      await refresh();
+    } catch {
+      if (selection.current === id) setActionError(true);
+    } finally {
+      if (selection.current === id) setDeciding(null);
+    }
+  }
+
+  return { status: visibleStatus, enabled, setEnabled, busy, stopping, changingMode, deciding, error: error || actionError, refresh, retry, start, cancel, mode, decide };
 }

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SendReceipt } from "./chat";
+import type { AuthorizationRequest } from "./authorization";
 
 export type RunState = "prepared" | "running" | "complete" | "failed" | "cancelled" | "interrupted";
 export type ExecutionStatus = {
@@ -15,6 +16,8 @@ export type ExecutionStatus = {
   } | null;
   blocker: { run_id: number; conversation_id: number; state: RunState } | null;
   blockerTitle: string | null;
+  pendingRequests: AuthorizationRequest[];
+  continuationAvailable: boolean;
 };
 
 export type AgentRunEvent =

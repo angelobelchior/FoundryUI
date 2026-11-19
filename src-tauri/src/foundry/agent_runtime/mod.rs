@@ -1,3 +1,4 @@
+mod approvals;
 mod change_tools;
 mod command_tools;
 mod composite;
@@ -10,6 +11,7 @@ mod read_tools;
 mod schema;
 
 use crate::foundry::db::agent::AgentStore;
+pub use approvals::PersistedApprovals;
 
 pub use cycle::{
     ApprovalChoice, ApprovalProvider, ChatOnlyReason, CycleDeps, CycleEvent, CycleEventKind,
@@ -57,7 +59,7 @@ pub async fn run_agent_cycle(
     }
     let mut executor = ToolExecutorSet;
     let authorizer = ToolAuthorizerSet;
-    let mut approvals = SuspendApprovals;
+    let mut approvals = PersistedApprovals;
     let limits = CycleLimits::default();
     run_cycle(
         store,

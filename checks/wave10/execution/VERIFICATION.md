@@ -16,8 +16,8 @@ answer or be marked completed.
 ## Verification
 
 - `pnpm build` passes, including TypeScript checking.
-- `pnpm exec playwright test --config=playwright.execution.config.ts`: six tests pass.
-- `cargo test`: 364 library tests, 17 agent-cycle tests, and all other integration suites pass; eight existing live-environment tests remain ignored.
+- `pnpm exec playwright test --config=playwright.execution.config.ts`: ten tests pass.
+- `cargo test`: 364 library tests, 23 agent-cycle tests, and all other integration suites pass; eight existing live-environment tests remain ignored.
 - `cargo clippy --lib -- -D warnings` remains blocked by the pre-existing nested conditional in `chat.rs:888`; no new lint was reported.
 - The Impeccable detector reports no findings on the changed UI targets.
 
@@ -38,8 +38,9 @@ this change and have not been edited.
 
 ## Remaining limitations
 
-- Approval suspension is observable and cancellable, but resuming the model cycle
-  after a later approval is not implemented. The interface states this explicitly.
+- Active model cycles now observe persisted decisions and continue after approval
+  or denial. A run without a live continuation is not automatically restarted;
+  the interface distinguishes that case and allows stopping it.
 - Process commands and actual file writes remain capability-gated. No process-tree
   termination or file recovery is claimed by this interface.
 - Event history is a bounded projection of up to 100 persisted state/result rows.

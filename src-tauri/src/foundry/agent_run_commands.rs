@@ -12,6 +12,7 @@ use super::app::AppState;
 use super::backend::FoundryBackend;
 use super::catalog;
 use super::chat::{ChatParams, GenerationStart, SendReceipt};
+use super::db::agent::authorization::AuthorizationStatus;
 use super::db::agent::{
     ActiveRun, AgentMode, AgentStoreError, CancelReceipt, ExecutionRun, HistoryContent, RunState,
 };
@@ -20,6 +21,7 @@ use super::error::{FoundryError, FoundryResult};
 use super::http::StreamTimeouts;
 use super::local_inference::VerifiedLocalEndpoint;
 use super::params;
+use super::permission_commands::AuthorizationRequestView;
 
 const AGENT_RUN_EVENT: &str = "agent-run-event";
 
@@ -381,6 +383,8 @@ pub struct ExecutionStatus {
     pub execution: Option<ExecutionRun>,
     pub blocker: Option<ActiveRun>,
     pub blocker_title: Option<String>,
+    pub pending_requests: Vec<AuthorizationRequestView>,
+    pub continuation_available: bool,
 }
 
 #[tauri::command]
@@ -396,15 +400,34 @@ pub fn agent_execution_status(
         .as_ref()
         .and_then(|run| database.conversation(run.conversation_id).ok())
         .map(|conversation| conversation.title);
+    let execution = store.execution_run(conversation_id)?;
+    let pending_requests = store
+        .list_requests(conversation_id)?
+        .into_iter()
+        .filter(|request| {
+            request.status == AuthorizationStatus::Pending
+                && execution
+                    .as_ref()
+                    .is_some_and(|execution| execution.run.id == request.run_id)
+        })
+        .map(Into::into)
+        .collect();
+    let continuation_available = execution.as_ref().is_some_and(|execution| {
+        matches!(execution.run.state, RunState::Prepared | RunState::Running)
+    }) && state
+        .generations
+        .with_generation_barrier(|ids| ids.contains(&conversation_id));
     Ok(ExecutionStatus {
         conversation_id,
         mode: revision.mode(),
         context_revision: revision.key().context_revision,
         authorization_revision: revision.key().authorization_revision,
         mode_revision: revision.key().mode_revision,
-        execution: store.execution_run(conversation_id)?,
+        execution,
         blocker,
         blocker_title,
+        pending_requests,
+        continuation_available,
     })
 }
 

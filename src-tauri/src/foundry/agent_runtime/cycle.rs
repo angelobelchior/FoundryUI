@@ -239,10 +239,20 @@ pub enum ApprovalChoice {
     Approve { remember: bool },
     Deny,
     Suspend,
+    Refresh,
 }
 
+#[async_trait]
 pub trait ApprovalProvider: Send {
     fn choose(&mut self, request: &AuthorizationRequest) -> ApprovalChoice;
+
+    async fn wait(
+        &mut self,
+        _store: &AgentStore<'_>,
+        request: &AuthorizationRequest,
+    ) -> Result<ApprovalChoice, String> {
+        Ok(self.choose(request))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -386,6 +396,15 @@ pub async fn run_cycle(
     let outcome = driver.drive(provider, request.messages).await;
     match outcome {
         Ok(outcome) => outcome,
+        Err(_)
+            if store
+                .run(run.id)
+                .is_ok_and(|run| run.state == RunState::Cancelled) =>
+        {
+            CycleOutcome::AlreadyFinished {
+                run_state: RunState::Cancelled,
+            }
+        }
         Err(failure) => fail(store, sink, &run, failure),
     }
 }
@@ -550,7 +569,12 @@ impl Driver<'_, '_> {
                     }
                 }
                 tool_calls += 1;
-                match self.process(call).await? {
+                let disposition =
+                    match within(started, self.limits.max_duration, self.process(call)).await {
+                        Within::Value(result) => result?,
+                        Within::Expired => Disposition::Expired,
+                    };
+                match disposition {
                     Disposition::Continue(summary) => {
                         let message = tool_message(&call.id, &summary);
                         request_bytes = request_bytes.saturating_add(json_len(&message));
@@ -559,7 +583,7 @@ impl Driver<'_, '_> {
                     Disposition::Expired => {
                         return self.stop(
                             StopReason::DurationLimit,
-                            "the cycle duration was exceeded while running a tool",
+                            "the cycle duration was exceeded while processing a tool call",
                             steps,
                             tool_calls,
                         );
@@ -744,6 +768,7 @@ impl Driver<'_, '_> {
         record: &ActionRecord,
         call: &ToolCall,
     ) -> Result<Disposition, CycleFailure> {
+        let mut announced = Vec::new();
         loop {
             let pending = self
                 .store
@@ -759,7 +784,20 @@ impl Driver<'_, '_> {
             }
             let mut suspended = None;
             for request in &pending {
-                match self.approvals.choose(request) {
+                if !announced.contains(&request.id) {
+                    self.event(CycleEventKind::AuthorizationPending {
+                        action_id: record.id,
+                        request_id: request.id,
+                    })?;
+                    announced.push(request.id);
+                }
+                match self
+                    .approvals
+                    .wait(self.store, request)
+                    .await
+                    .map_err(|detail| CycleFailure::new("authorization_changed", detail))?
+                {
+                    ApprovalChoice::Refresh => {}
                     ApprovalChoice::Suspend => {
                         suspended = Some(request.id);
                         break;
@@ -781,10 +819,6 @@ impl Driver<'_, '_> {
                 }
             }
             if let Some(request_id) = suspended {
-                self.event(CycleEventKind::AuthorizationPending {
-                    action_id: record.id,
-                    request_id,
-                })?;
                 return Ok(Disposition::Suspend {
                     request_id,
                     action_id: record.id,

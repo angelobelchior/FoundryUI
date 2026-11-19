@@ -1,4 +1,7 @@
 export const executionEnglish = {
+  livePendingHint: "Waiting for your decision. The same run continues only after a valid authorization; denying returns a denial to the model.",
+  noPreview: "A complete preview is unavailable. This action cannot be approved.",
+  allowOnce: "Review and allow once", deny: "Deny", waitingDecision: "Waiting for confirmation…", request: "Authorization request {{id}}",
   title: "Agent execution", enabled: "Use tools", mode: "Changes", review: "Review changes", automatic: "Automatic",
   modeHint: "Changing mode does not approve pending actions or stop a run.",
   limits: "Commands and file writes remain unavailable. Stop does not undo completed effects.",
@@ -8,7 +11,7 @@ export const executionEnglish = {
   occupied: "Resources occupied by {{title}} (conversation {{id}}).", wait: "Wait", interrupt: "Request interruption",
   confirm: "Stop the run in {{title}}?", confirmHint: "Completed effects will not be undone. The resource lock may remain until termination is confirmed.",
   cancel: "Keep running", stop: "Stop run", stopping: "Stopping…", refresh: "Refresh state",
-  pendingHint: "Waiting for authorization. No pending action has started. Resuming after approval is not available yet; you can stop this run.",
+  pendingHint: "This run no longer has a live continuation. It will not restart automatically. You can stop it without undoing completed effects.",
   uncertainHint: "Termination is unconfirmed. Resources remain locked; starting another writer is blocked.",
   progress: "Execution history", action: "Action {{id}}", run: "Run {{id}}",
   states: { idle: "Ready", generating: "Generating", tool: "Executing tool", pending: "Awaiting authorization", complete: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted", uncertain: "Effects uncertain" },
@@ -16,6 +19,9 @@ export const executionEnglish = {
 };
 
 export const executionPortuguese: typeof executionEnglish = {
+  livePendingHint: "Aguardando sua decisão. A mesma execução só continua após uma autorização válida; negar retorna uma recusa ao modelo.",
+  noPreview: "A prévia completa não está disponível. Esta ação não pode ser aprovada.",
+  allowOnce: "Revisar e permitir uma vez", deny: "Negar", waitingDecision: "Aguardando confirmação…", request: "Solicitação de autorização {{id}}",
   title: "Execução do agente", enabled: "Usar ferramentas", mode: "Alterações", review: "Revisar alterações", automatic: "Automático",
   modeHint: "Mudar o modo não aprova ações pendentes nem interrompe a execução.",
   limits: "Comandos e escrita de arquivos continuam indisponíveis. Parar não desfaz efeitos concluídos.",
@@ -25,7 +31,7 @@ export const executionPortuguese: typeof executionEnglish = {
   occupied: "Recursos ocupados por {{title}} (conversa {{id}}).", wait: "Aguardar", interrupt: "Solicitar interrupção",
   confirm: "Parar a execução em {{title}}?", confirmHint: "Efeitos concluídos não serão desfeitos. O bloqueio pode permanecer até que o encerramento seja confirmado.",
   cancel: "Manter execução", stop: "Parar execução", stopping: "Cancelando…", refresh: "Atualizar estado",
-  pendingHint: "Aguardando autorização. Nenhuma ação pendente foi iniciada. A retomada após aprovação ainda não está disponível; você pode parar esta execução.",
+  pendingHint: "Esta execução não tem mais uma continuação ativa. Ela não será reiniciada automaticamente. Você pode pará-la sem desfazer efeitos concluídos.",
   uncertainHint: "O encerramento não foi confirmado. Os recursos continuam bloqueados; outro escritor não pode iniciar.",
   progress: "Histórico da execução", action: "Ação {{id}}", run: "Execução {{id}}",
   states: { idle: "Pronto", generating: "Gerando", tool: "Executando ferramenta", pending: "Aguardando autorização", complete: "Concluído", failed: "Falhou", cancelled: "Cancelado", interrupted: "Interrompido", uncertain: "Efeitos incertos" },
@@ -33,6 +39,9 @@ export const executionPortuguese: typeof executionEnglish = {
 };
 
 export const executionSpanish: typeof executionEnglish = {
+  livePendingHint: "Esperando tu decisión. La misma ejecución continúa solo después de una autorización válida; denegar devuelve un rechazo al modelo.",
+  noPreview: "La vista previa completa no está disponible. Esta acción no puede aprobarse.",
+  allowOnce: "Revisar y permitir una vez", deny: "Denegar", waitingDecision: "Esperando confirmación…", request: "Solicitud de autorización {{id}}",
   title: "Ejecución del agente", enabled: "Usar herramientas", mode: "Cambios", review: "Revisar cambios", automatic: "Automático",
   modeHint: "Cambiar el modo no aprueba acciones pendientes ni detiene la ejecución.",
   limits: "Los comandos y la escritura de archivos siguen deshabilitados. Detener no deshace efectos completados.",
@@ -42,7 +51,7 @@ export const executionSpanish: typeof executionEnglish = {
   occupied: "Recursos ocupados por {{title}} (conversación {{id}}).", wait: "Esperar", interrupt: "Solicitar interrupción",
   confirm: "¿Detener la ejecución en {{title}}?", confirmHint: "Los efectos completados no se desharán. El bloqueo puede permanecer hasta confirmar la terminación.",
   cancel: "Mantener ejecución", stop: "Detener ejecución", stopping: "Deteniendo…", refresh: "Actualizar estado",
-  pendingHint: "Esperando autorización. No se inició ninguna acción pendiente. Reanudar después de aprobar aún no está disponible; puedes detener esta ejecución.",
+  pendingHint: "Esta ejecución ya no tiene una continuación activa. No se reiniciará automáticamente. Puedes detenerla sin deshacer efectos completados.",
   uncertainHint: "La terminación no está confirmada. Los recursos siguen bloqueados; no puede iniciar otro escritor.",
   progress: "Historial de ejecución", action: "Acción {{id}}", run: "Ejecución {{id}}",
   states: { idle: "Listo", generating: "Generando", tool: "Ejecutando herramienta", pending: "Esperando autorización", complete: "Completado", failed: "Falló", cancelled: "Cancelado", interrupted: "Interrumpido", uncertain: "Efectos inciertos" },

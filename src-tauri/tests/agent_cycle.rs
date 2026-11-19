@@ -5,16 +5,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use foundryui_lib::foundry::agent_runtime::{
     ApprovalChoice, ApprovalProvider, ChatOnlyReason, CycleDeps, CycleEvent, CycleEventKind,
-    CycleLimits, CycleOutcome, CycleRequest, CycleSink, ModelRequest, ModelTurn, RegisteredTool,
-    StopReason, ToolAuthorizer, ToolAvailability, ToolCall, ToolExecution, ToolExecutor,
-    ToolRegistry, ToolSpec, ToolUnavailable, TurnProvider, run_agent_cycle, run_cycle,
+    CycleLimits, CycleOutcome, CycleRequest, CycleSink, ModelRequest, ModelTurn,
+    PersistedApprovals, RegisteredTool, StopReason, ToolAuthorizer, ToolAvailability, ToolCall,
+    ToolExecution, ToolExecutor, ToolRegistry, ToolSpec, ToolUnavailable, TurnProvider,
+    run_agent_cycle, run_cycle,
 };
 use foundryui_lib::foundry::db::Database;
 use foundryui_lib::foundry::db::agent::authorization::{
-    AuthorizationRequest, AuthorizationRevision,
+    AuthorizationRequest, AuthorizationRevision, AuthorizationStatus, RequestDecision,
 };
 use foundryui_lib::foundry::db::agent::{
-    ActionOutcome, ActionRecord, ActionState, HistoryContent, RunState,
+    ActionOutcome, ActionRecord, ActionState, AgentMode, AgentStoreError, HistoryContent, RunState,
 };
 use foundryui_lib::foundry::policy as p;
 use foundryui_lib::foundry::resources::RootHandle;
@@ -1214,4 +1215,394 @@ fn the_assembled_agent_runs_read_tools_end_to_end() {
     let content: Value = serde_json::from_str(tool_message["content"].as_str().unwrap()).unwrap();
     assert_eq!(content["status"], "succeeded");
     assert_eq!(content["content"], "hello from the project");
+}
+
+async fn next_pending(fixture: &Fixture) -> AuthorizationRequest {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(request) = fixture
+                .store()
+                .list_requests(fixture.conversation)
+                .unwrap()
+                .into_iter()
+                .find(|request| request.status == AuthorizationStatus::Pending)
+            {
+                return request;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("pending request")
+}
+
+#[test]
+fn persisted_decisions_resume_the_same_turn_without_losing_remaining_calls() {
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider = ScriptedProvider::new(vec![
+        turn(vec![call("first", "a.txt"), call("second", "b.txt")]),
+        final_turn(),
+    ]);
+    let mut executor = RecordingExecutor::new(json!({"content": "fixture"}));
+    let mut approvals = PersistedApprovals;
+    let sink = RecordingSink::new();
+    let store = fixture.store();
+    let authorizer = ReadAuthorizer {
+        root: &fixture.root,
+    };
+    let limits = limits();
+    let (outcome, ()) = block_on(async {
+        tokio::join!(
+            run_cycle(
+                &store,
+                CycleDeps {
+                    registry: &registry,
+                    provider: &mut provider,
+                    executor: &mut executor,
+                    authorizer: &authorizer,
+                    approvals: &mut approvals,
+                    limits: &limits,
+                    sink: &sink
+                },
+                request(fixture.conversation)
+            ),
+            async {
+                for _ in 0..2 {
+                    let request = next_pending(&fixture).await;
+                    store
+                        .decide_request(
+                            fixture.conversation,
+                            request.id,
+                            RequestDecision::Approve { remember: false },
+                        )
+                        .unwrap();
+                }
+            }
+        )
+    });
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 2
+        }
+    );
+    assert_eq!(
+        executor
+            .calls
+            .iter()
+            .map(|call| call.id.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second"]
+    );
+    assert_eq!(provider.requests.len(), 2);
+    assert_eq!(
+        provider.requests[1]
+            .messages
+            .iter()
+            .filter(|message| message["role"] == "tool")
+            .count(),
+        2
+    );
+    assert_eq!(
+        sink.kinds()
+            .iter()
+            .filter(|kind| matches!(kind, CycleEventKind::AuthorizationPending { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_persisted_denial_resumes_with_a_denied_result_without_execution() {
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider =
+        ScriptedProvider::new(vec![turn(vec![call("first", "a.txt")]), final_turn()]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = PersistedApprovals;
+    let store = fixture.store();
+    let authorizer = ReadAuthorizer {
+        root: &fixture.root,
+    };
+    let limits = limits();
+    let (outcome, ()) = block_on(async {
+        tokio::join!(
+            run_cycle(
+                &store,
+                CycleDeps {
+                    registry: &registry,
+                    provider: &mut provider,
+                    executor: &mut executor,
+                    authorizer: &authorizer,
+                    approvals: &mut approvals,
+                    limits: &limits,
+                    sink: &()
+                },
+                request(fixture.conversation)
+            ),
+            async {
+                let request = next_pending(&fixture).await;
+                store
+                    .decide_request(fixture.conversation, request.id, RequestDecision::Deny)
+                    .unwrap();
+            }
+        )
+    });
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 1
+        }
+    );
+    assert!(executor.calls.is_empty());
+    let result = provider.requests[1]
+        .messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .unwrap();
+    let content: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
+    assert_eq!(content["status"], "denied");
+}
+
+#[test]
+fn cancellation_during_persisted_approval_wait_blocks_the_late_decision() {
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider = ScriptedProvider::new(vec![turn(vec![call("first", "a.txt")])]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = PersistedApprovals;
+    let store = fixture.store();
+    let authorizer = ReadAuthorizer {
+        root: &fixture.root,
+    };
+    let limits = limits();
+    let (outcome, ()) = block_on(async {
+        tokio::join!(
+            run_cycle(
+                &store,
+                CycleDeps {
+                    registry: &registry,
+                    provider: &mut provider,
+                    executor: &mut executor,
+                    authorizer: &authorizer,
+                    approvals: &mut approvals,
+                    limits: &limits,
+                    sink: &()
+                },
+                request(fixture.conversation)
+            ),
+            async {
+                let request = next_pending(&fixture).await;
+                store.cancel_run(request.run_id).unwrap();
+                assert_eq!(
+                    store.decide_request(
+                        fixture.conversation,
+                        request.id,
+                        RequestDecision::Approve { remember: false }
+                    ),
+                    Err(AgentStoreError::InvalidTransition)
+                );
+            }
+        )
+    });
+    assert_eq!(
+        outcome,
+        CycleOutcome::AlreadyFinished {
+            run_state: RunState::Cancelled
+        }
+    );
+    assert!(executor.calls.is_empty());
+    assert_eq!(provider.requests.len(), 1);
+}
+
+#[test]
+fn changing_mode_invalidates_the_wait_instead_of_granting_pending_access() {
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider =
+        ScriptedProvider::new(vec![turn(vec![call("first", "a.txt")]), final_turn()]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = PersistedApprovals;
+    let store = fixture.store();
+    let authorizer = ReadAuthorizer {
+        root: &fixture.root,
+    };
+    let limits = limits();
+    let (outcome, ()) = block_on(async {
+        tokio::join!(
+            run_cycle(
+                &store,
+                CycleDeps {
+                    registry: &registry,
+                    provider: &mut provider,
+                    executor: &mut executor,
+                    authorizer: &authorizer,
+                    approvals: &mut approvals,
+                    limits: &limits,
+                    sink: &()
+                },
+                request(fixture.conversation)
+            ),
+            async {
+                let request = next_pending(&fixture).await;
+                let revision = store.authorization_revision(fixture.conversation).unwrap();
+                store
+                    .set_authorization_mode(revision.key(), AgentMode::Automatic)
+                    .unwrap();
+                assert!(
+                    store
+                        .decide_request(
+                            fixture.conversation,
+                            request.id,
+                            RequestDecision::Approve { remember: false }
+                        )
+                        .is_err()
+                );
+            }
+        )
+    });
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 1
+        }
+    );
+    assert!(executor.calls.is_empty());
+    let result = provider.requests[1]
+        .messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .unwrap();
+    let content: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
+    assert_eq!(content["code"], "authorization_changed");
+}
+
+#[test]
+fn persisted_approval_wait_obeys_the_cycle_deadline() {
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider = ScriptedProvider::new(vec![turn(vec![call("first", "a.txt")])]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = PersistedApprovals;
+    let limits = CycleLimits {
+        max_duration: Duration::from_millis(50),
+        ..limits()
+    };
+    let outcome = block_on(run_cycle(
+        &fixture.store(),
+        CycleDeps {
+            registry: &registry,
+            provider: &mut provider,
+            executor: &mut executor,
+            authorizer: &ReadAuthorizer {
+                root: &fixture.root,
+            },
+            approvals: &mut approvals,
+            limits: &limits,
+            sink: &(),
+        },
+        request(fixture.conversation),
+    ));
+    assert!(matches!(
+        outcome,
+        CycleOutcome::Stopped {
+            reason: StopReason::DurationLimit,
+            ..
+        }
+    ));
+    assert!(executor.calls.is_empty());
+}
+
+#[test]
+fn resumed_dispatch_revalidates_facts_before_executing() {
+    struct ChangingAuthorizer<'a> {
+        root: &'a RootHandle,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl ToolAuthorizer for ChangingAuthorizer<'_> {
+        fn facts(
+            &self,
+            store: &foundryui_lib::foundry::db::agent::AgentStore<'_>,
+            revision: &AuthorizationRevision,
+            action: &ActionRecord,
+            call: &ToolCall,
+        ) -> Result<p::TrustedFacts, String> {
+            let mut facts =
+                ReadAuthorizer { root: self.root }.facts(store, revision, action, call)?;
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) != 0 {
+                facts.action.resources[0].version = "changed".into();
+                facts.resources[0].resource.version = "changed".into();
+                facts.read_evidence = p::ReadEvidence::ProvenReads {
+                    resources: facts.action.resources.clone(),
+                };
+            }
+            Ok(facts)
+        }
+    }
+    let fixture = Fixture::standalone();
+    let registry = registry();
+    let mut provider =
+        ScriptedProvider::new(vec![turn(vec![call("first", "a.txt")]), final_turn()]);
+    let mut executor = RecordingExecutor::new(json!({}));
+    let mut approvals = PersistedApprovals;
+    let store = fixture.store();
+    let authorizer = ChangingAuthorizer {
+        root: &fixture.root,
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let limits = limits();
+    let (outcome, ()) = block_on(async {
+        tokio::join!(
+            run_cycle(
+                &store,
+                CycleDeps {
+                    registry: &registry,
+                    provider: &mut provider,
+                    executor: &mut executor,
+                    authorizer: &authorizer,
+                    approvals: &mut approvals,
+                    limits: &limits,
+                    sink: &()
+                },
+                request(fixture.conversation)
+            ),
+            async {
+                let request = next_pending(&fixture).await;
+                store
+                    .decide_request(
+                        fixture.conversation,
+                        request.id,
+                        RequestDecision::Approve { remember: false },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    store.decide_request(
+                        fixture.conversation,
+                        request.id,
+                        RequestDecision::Approve { remember: false }
+                    ),
+                    Err(AgentStoreError::InvalidTransition)
+                );
+            }
+        )
+    });
+    assert_eq!(
+        outcome,
+        CycleOutcome::Completed {
+            steps: 2,
+            tool_calls: 1
+        }
+    );
+    assert!(executor.calls.is_empty());
+    let result = provider.requests[1]
+        .messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .unwrap();
+    let content: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
+    assert_eq!(content["code"], "authorization_changed");
 }
