@@ -188,20 +188,12 @@ impl AgentStore<'_> {
 
     pub fn fact_by_key(&self, conversation_id: i64, key: &str) -> AgentStoreResult<FactRecord> {
         let connection = self.database.connection();
-        let revision: i64 = connection
-            .query_row(
-                "SELECT context_revision FROM agent_contexts WHERE conversation_id = ?1",
-                [conversation_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(store_error)?
-            .ok_or(AgentStoreError::NotFound)?;
         connection
             .query_row(
                 "SELECT id, conversation_id, context_revision, run_id, fact_key, payload_json, created_at
-                 FROM agent_context_facts WHERE conversation_id = ?1 AND context_revision = ?2 AND fact_key = ?3",
-                params![conversation_id, revision, key],
+                 FROM agent_context_facts WHERE conversation_id = ?1 AND fact_key = ?2
+                 ORDER BY id DESC LIMIT 1",
+                params![conversation_id, key],
                 fact_from_row,
             )
             .optional()

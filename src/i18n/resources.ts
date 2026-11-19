@@ -6,11 +6,12 @@ import { accessEnglish, accessPortuguese, accessSpanish } from "./access";
 import { permissionsEnglish, permissionsPortuguese, permissionsSpanish } from "./permissions";
 import { contextEnglish, contextPortuguese, contextSpanish } from "./context";
 import { snapshotsEnglish, snapshotsPortuguese, snapshotsSpanish } from "./snapshots";
+import { recoveryEnglish, recoveryPortuguese, recoverySpanish } from "./recovery";
 
 export const resources = {
-  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish, permissions: permissionsEnglish, context: contextEnglish, snapshots: snapshotsEnglish } },
-  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese, permissions: permissionsPortuguese, context: contextPortuguese, snapshots: snapshotsPortuguese } },
-  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish, permissions: permissionsSpanish, context: contextSpanish, snapshots: snapshotsSpanish } },
+  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish, permissions: permissionsEnglish, context: contextEnglish, snapshots: snapshotsEnglish, recovery: recoveryEnglish } },
+  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese, permissions: permissionsPortuguese, context: contextPortuguese, snapshots: snapshotsPortuguese, recovery: recoveryPortuguese } },
+  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish, permissions: permissionsSpanish, context: contextSpanish, snapshots: snapshotsSpanish, recovery: recoverySpanish } },
 };
 
 export type TranslationSchema = typeof resources.en.translation;

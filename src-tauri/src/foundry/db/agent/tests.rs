@@ -1315,3 +1315,54 @@ fn a_context_budget_manifest_is_persisted_and_validated() {
     assert_eq!(budgets.len(), 1);
     assert!(matches!(budgets[0].fact, ContextFact::ContextBudget { .. }));
 }
+
+#[test]
+fn fact_by_key_finds_change_sets_across_context_revisions() {
+    let database = Database::open_in_memory().expect("database");
+    let conversation = database
+        .create_conversation("fixture-model")
+        .expect("conversation");
+    let store = database.agent_store();
+    let revision = store
+        .authorization_revision(conversation.id)
+        .expect("revision")
+        .key()
+        .context_revision;
+    let hash = "a".repeat(64);
+    let change = ContextFact::ChangeSet {
+        operation: "edit".into(),
+        path: "a.txt".into(),
+        base_fingerprint: Some(hash.clone()),
+        proposed_fingerprint: Some(hash.clone()),
+        proposal_fingerprint: hash.clone(),
+        additions: 1,
+        deletions: 1,
+        diff: "-a\n+b\n".into(),
+        diff_truncated: false,
+        resource_keys: vec![],
+    };
+    let saved = store
+        .record_fact(conversation.id, revision, None, "change-42", &change)
+        .expect("change set");
+    store
+        .record_fact(
+            conversation.id,
+            revision,
+            None,
+            "recovery-42",
+            &ContextFact::RecoveryRecord {
+                change_set_id: saved.id,
+                git_reference: "refs/foundryui/recovery/fixture".into(),
+            },
+        )
+        .expect("recovery record");
+    let next = store
+        .advance_context(conversation.id, revision)
+        .expect("advance");
+    assert_eq!(next, revision + 1);
+
+    let found = store
+        .fact_by_key(conversation.id, "change-42")
+        .expect("change set survives revision bump");
+    assert!(matches!(found.fact, ContextFact::ChangeSet { .. }));
+}

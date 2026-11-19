@@ -8,6 +8,7 @@ import { ReadNetworkPanel } from "./ReadNetworkPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 import { ContextPanel } from "./ContextPanel";
 import { SnapshotPanel } from "./SnapshotPanel";
+import { RecoveryPanel } from "./RecoveryPanel";
 
 export function AgentExecution({ agent, compatible, disabled, hasAttachments }: {
   agent: ReturnType<typeof useAgentExecution>;
@@ -90,6 +91,7 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
       {status ? <PermissionsPanel key={`permissions-${status.conversationId}`} conversationId={status.conversationId} onChanged={() => void agent.refresh()} /> : null}
       {status ? <ContextPanel key={`context-${status.conversationId}`} conversationId={status.conversationId} /> : null}
       {status ? <SnapshotPanel key={`snapshots-${status.conversationId}`} conversationId={status.conversationId} /> : null}
+      {status ? <RecoveryPanel key={`recovery-${status.conversationId}`} conversationId={status.conversationId} onChanged={() => void agent.refresh()} /> : null}
       <Modal open={confirm !== null} title={t("execution.confirm", { title: confirm?.title ?? "" })} onClose={() => { if (!agent.stopping) setConfirm(null); }}>
         <p className="text-[14px] leading-relaxed text-primary">{t("execution.confirmHint")}</p>
         {agent.error ? <p role="alert" className="mt-3 text-[14px] leading-relaxed text-primary">{t("execution.error")}</p> : null}

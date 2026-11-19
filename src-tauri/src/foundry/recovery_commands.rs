@@ -26,7 +26,7 @@ impl From<RecoveryError> for RecoveryCommandError {
 pub fn recovery_list(
     state: State<'_, AppState>,
     conversation_id: i64,
-    run_id: i64,
+    run_id: Option<i64>,
 ) -> Result<Vec<RecoverableChange>, RecoveryCommandError> {
     let store = state.database().map_err(|_| RecoveryCommandError {
         code: "not_ready".to_string(),

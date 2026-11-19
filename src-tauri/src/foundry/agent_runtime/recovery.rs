@@ -52,11 +52,16 @@ impl std::error::Error for RecoveryError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoverableChange {
+    pub run_id: Option<i64>,
     pub action_id: i64,
     pub operation: String,
     pub path: String,
     pub protected: bool,
     pub destructive: bool,
+    pub additions: u32,
+    pub deletions: u32,
+    pub diff: String,
+    pub diff_truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -71,7 +76,7 @@ pub struct RecoveryOutcome {
 pub fn list_recoverable(
     store: &AgentStore<'_>,
     conversation_id: i64,
-    run_id: i64,
+    run_id: Option<i64>,
 ) -> Result<Vec<RecoverableChange>, RecoveryError> {
     let facts = store
         .facts(conversation_id)
@@ -80,12 +85,18 @@ pub fn list_recoverable(
         .iter()
         .filter_map(|fact| {
             let ContextFact::ChangeSet {
-                operation, path, ..
+                operation,
+                path,
+                additions,
+                deletions,
+                diff,
+                diff_truncated,
+                ..
             } = &fact.fact
             else {
                 return None;
             };
-            if fact.run_id != Some(run_id) {
+            if run_id.is_some() && fact.run_id != run_id {
                 return None;
             }
             let action_id = fact.key.strip_prefix("change-")?.parse::<i64>().ok()?;
@@ -96,11 +107,16 @@ pub fn list_recoverable(
                 )
             });
             Some(RecoverableChange {
+                run_id: fact.run_id,
                 action_id,
                 operation: operation.clone(),
                 path: path.clone(),
                 protected,
                 destructive: operation == "create",
+                additions: *additions,
+                deletions: *deletions,
+                diff: diff.clone(),
+                diff_truncated: *diff_truncated,
             })
         })
         .collect();
@@ -353,7 +369,8 @@ mod tests {
             )
             .expect("recovery record");
 
-        let changes = list_recoverable(&store, fixture.conversation, fixture.run_id).expect("list");
+        let changes =
+            list_recoverable(&store, fixture.conversation, Some(fixture.run_id)).expect("list");
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].operation, "edit");
         assert_eq!(changes[0].path, "a.txt");
