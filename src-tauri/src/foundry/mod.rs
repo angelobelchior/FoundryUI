@@ -1,4 +1,5 @@
 pub mod agent_commands;
+pub mod agent_run_commands;
 pub mod agent_runtime;
 pub mod app;
 pub mod attachments;
