@@ -338,6 +338,86 @@ pub(super) fn create_new(root: &File, path: &Path, content: &[u8]) -> ResourceRe
     Ok(())
 }
 
+pub(super) fn rewrite(root: &File, path: &Path, content: &[u8]) -> ResourceResult<()> {
+    if content.len() > MAX_OPERATION_BYTES {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::LimitExceeded,
+            raw_os_error: None,
+        });
+    }
+    let (parent_path, name) = parent_and_name(path)?;
+    let parent = open_beneath(root, &parent_path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+    if stat(&parent)?.st_dev != stat(root)?.st_dev {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    let mut file = open_beneath(
+        &parent,
+        Path::new(&name),
+        libc::O_WRONLY | libc::O_NONBLOCK,
+        0,
+    )?;
+    validate_regular(&parent, &file)?;
+    if stat(&file)?.st_nlink > 1 {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedResourceType,
+            raw_os_error: None,
+        });
+    }
+    file.set_len(0).map_err(io_error)?;
+    if let Err(error) = file.write_all(content).and_then(|_| file.sync_all()) {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::WriteIncomplete,
+            raw_os_error: error.raw_os_error(),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn remove(root: &File, path: &Path) -> ResourceResult<()> {
+    let (parent_path, name) = parent_and_name(path)?;
+    let parent = open_beneath(root, &parent_path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+    if stat(&parent)?.st_dev != stat(root)?.st_dev {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::UnsupportedVolume,
+            raw_os_error: None,
+        });
+    }
+    let target = open_beneath(
+        &parent,
+        Path::new(&name),
+        libc::O_RDONLY | libc::O_NONBLOCK,
+        0,
+    )?;
+    validate_regular(&parent, &target)?;
+    let name = CString::new(name.as_bytes()).map_err(|_| ResourceError {
+        kind: ResourceErrorKind::InvalidPath,
+        raw_os_error: None,
+    })?;
+    if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+        return Err(io_error(io::Error::last_os_error()));
+    }
+    parent.sync_all().map_err(io_error)?;
+    Ok(())
+}
+
+fn parent_and_name(path: &Path) -> ResourceResult<(std::path::PathBuf, String)> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or(ResourceError {
+            kind: ResourceErrorKind::InvalidPath,
+            raw_os_error: None,
+        })?;
+    Ok((parent.to_path_buf(), name.to_string()))
+}
+
 pub(super) fn list_directory(root: &File, path: &Path) -> ResourceResult<Vec<DirectoryEntry>> {
     let dir = open_beneath(root, path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
     if stat(&dir)?.st_dev != stat(root)?.st_dev {

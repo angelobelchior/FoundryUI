@@ -371,6 +371,52 @@ impl RootHandle {
         }
     }
 
+    pub fn rewrite(&self, path: &RelativePath, content: &[u8]) -> ResourceResult<()> {
+        self.identity()?;
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            if self.revoked.load(Ordering::Acquire) {
+                return Err(ResourceError {
+                    kind: ResourceErrorKind::Revoked,
+                    raw_os_error: None,
+                });
+            }
+            macos::rewrite(&self.file, path.as_path(), content)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (path, content);
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
+    }
+
+    pub fn remove(&self, path: &RelativePath) -> ResourceResult<()> {
+        self.identity()?;
+        #[cfg(target_os = "macos")]
+        {
+            macos::verify_operation_lookup(&self.file)?;
+            if self.revoked.load(Ordering::Acquire) {
+                return Err(ResourceError {
+                    kind: ResourceErrorKind::Revoked,
+                    raw_os_error: None,
+                });
+            }
+            macos::remove(&self.file, path.as_path())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = path;
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
+    }
+
     pub fn relation(&self, other: &Self) -> ResourceResult<RootRelation> {
         #[cfg(target_os = "macos")]
         {

@@ -608,6 +608,7 @@ fn approved_guidance_cannot_waive_network_or_destructive_authorization() {
         .store()
         .decide_instruction(&fixture.preview("AGENTS.md"), true)
         .unwrap();
+    fixture.write("target.txt", "fixture");
     let store = fixture.store();
     let revision = store.authorization_revision(fixture.conversation).unwrap();
     let revision = store
@@ -631,7 +632,7 @@ fn approved_guidance_cannot_waive_network_or_destructive_authorization() {
     let deletion = ToolCall {
         id: "deletion".into(),
         name: "propose_file_change".into(),
-        arguments: serde_json::json!({"operation":"delete", "path":"target.txt", "base_version":"fixture"}),
+        arguments: serde_json::json!({"operation":"delete", "path":"target.txt"}),
     };
     let record = store
         .propose_call(run.id, &deletion.id, &deletion.name, &deletion.arguments)

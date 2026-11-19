@@ -478,7 +478,15 @@ fn typed_context_facts_are_owned_by_the_conversation_and_network_metadata_is_san
             http_status: None,
         },
         ContextFact::ChangeSet {
+            operation: "edit".into(),
+            path: "a.txt".into(),
+            base_fingerprint: Some(hash.clone()),
+            proposed_fingerprint: Some(hash.clone()),
             proposal_fingerprint: hash.clone(),
+            additions: 1,
+            deletions: 1,
+            diff: "-a\n+b\n".into(),
+            diff_truncated: false,
             resource_keys: vec!["fixture:1:3".into()],
         },
     ];
@@ -921,7 +929,15 @@ fn facts_cannot_reference_another_conversations_execution_or_change_set() {
         .context(destination.id)
         .expect("destination context");
     let fact = ContextFact::ChangeSet {
+        operation: "edit".into(),
+        path: "a.txt".into(),
+        base_fingerprint: Some("a".repeat(64)),
+        proposed_fingerprint: Some("b".repeat(64)),
         proposal_fingerprint: "a".repeat(64),
+        additions: 1,
+        deletions: 1,
+        diff: "-a\n+b\n".into(),
+        diff_truncated: false,
         resource_keys: vec![],
     };
     let saved = database

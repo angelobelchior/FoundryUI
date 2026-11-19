@@ -6,12 +6,13 @@ use super::cycle::{ToolExecution, ToolExecutor, ToolHost};
 use super::parser::ToolCall;
 use super::schema::{RegisteredTool, ToolAvailability, ToolRegistry, ToolSpec, ToolSpecError};
 use crate::foundry::db::agent::authorization::{AuthorizationRevision, RequirementKind};
-use crate::foundry::db::agent::{ActionRecord, AgentStore, ContextFact};
+use crate::foundry::db::agent::{ActionRecord, AgentStore, AgentStoreError, ContextFact};
 use crate::foundry::git_protection::{self, ProtectionOperation};
 use crate::foundry::policy as p;
-use crate::foundry::resources::RelativePath;
+use crate::foundry::resources::{RelativePath, ResourceError, RootHandle};
 
 const MAX_CHANGE_BYTES: usize = 1024 * 1024;
+const MAX_DIFF_BYTES: usize = 64 * 1024;
 
 pub fn register(registry: &mut ToolRegistry) -> Result<(), ToolSpecError> {
     registry.register(RegisteredTool {
@@ -34,6 +35,195 @@ pub fn register(registry: &mut ToolRegistry) -> Result<(), ToolSpecError> {
     })
 }
 
+struct ChangePlan {
+    operation: ProtectionOperation,
+    path: String,
+    relative: RelativePath,
+    base_fingerprint: Option<String>,
+    proposed_fingerprint: String,
+    proposal_fingerprint: String,
+    proposed: Vec<u8>,
+    diff: String,
+    additions: usize,
+    deletions: usize,
+    diff_truncated: bool,
+}
+
+impl ChangePlan {
+    fn change_id(&self) -> String {
+        format!("change-{}", self.proposal_fingerprint)
+    }
+
+    fn fact(&self, resource_keys: Vec<String>) -> ContextFact {
+        ContextFact::ChangeSet {
+            operation: operation_name(self.operation).to_string(),
+            path: self.path.clone(),
+            base_fingerprint: self.base_fingerprint.clone(),
+            proposed_fingerprint: Some(self.proposed_fingerprint.clone()),
+            proposal_fingerprint: self.proposal_fingerprint.clone(),
+            additions: self.additions as u32,
+            deletions: self.deletions as u32,
+            diff: self.diff.clone(),
+            diff_truncated: self.diff_truncated,
+            resource_keys,
+        }
+    }
+
+    fn revalidate(&self, root: &RootHandle) -> bool {
+        match self.operation {
+            ProtectionOperation::Create => match root.open_read(&self.relative) {
+                Ok(_) => false,
+                Err(error) if error.is_missing() => true,
+                Err(_) => false,
+            },
+            ProtectionOperation::Edit | ProtectionOperation::Delete => {
+                match root
+                    .open_read(&self.relative)
+                    .and_then(|opened| opened.read_versioned(MAX_CHANGE_BYTES))
+                {
+                    Ok(read) => {
+                        self.base_fingerprint.as_deref() == Some(&content_fingerprint(&read.bytes))
+                    }
+                    Err(_) => false,
+                }
+            }
+        }
+    }
+
+    fn apply(&self, root: &RootHandle) -> Result<(), ResourceError> {
+        match self.operation {
+            ProtectionOperation::Create => root.create_new(&self.relative, &self.proposed),
+            ProtectionOperation::Edit => root.rewrite(&self.relative, &self.proposed),
+            ProtectionOperation::Delete => root.remove(&self.relative),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanError {
+    Conflict,
+    Unavailable,
+}
+
+fn operation_name(operation: ProtectionOperation) -> &'static str {
+    match operation {
+        ProtectionOperation::Create => "create",
+        ProtectionOperation::Edit => "edit",
+        ProtectionOperation::Delete => "delete",
+    }
+}
+
+fn plan_change(root: &RootHandle, call: &ToolCall) -> Result<ChangePlan, PlanError> {
+    let operation = call
+        .arguments
+        .get("operation")
+        .and_then(Value::as_str)
+        .and_then(ProtectionOperation::parse)
+        .ok_or(PlanError::Unavailable)?;
+    let path = call
+        .arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or(PlanError::Unavailable)?;
+    let relative = RelativePath::parse(path).map_err(|_| PlanError::Unavailable)?;
+    let proposed_content = call
+        .arguments
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let expected_base = call.arguments.get("base_version").and_then(Value::as_str);
+
+    let base = match operation {
+        ProtectionOperation::Create => match root.open_read(&relative) {
+            Ok(_) => return Err(PlanError::Conflict),
+            Err(error) if error.is_missing() => Vec::new(),
+            Err(_) => return Err(PlanError::Unavailable),
+        },
+        ProtectionOperation::Edit | ProtectionOperation::Delete => {
+            match root
+                .open_read(&relative)
+                .and_then(|opened| opened.read_versioned(MAX_CHANGE_BYTES))
+            {
+                Ok(read) => {
+                    if let Some(expected) = expected_base
+                        && expected != content_fingerprint(&read.bytes)
+                    {
+                        return Err(PlanError::Conflict);
+                    }
+                    read.bytes
+                }
+                Err(error) if error.is_missing() => return Err(PlanError::Conflict),
+                Err(_) => return Err(PlanError::Unavailable),
+            }
+        }
+    };
+    let proposed = if operation == ProtectionOperation::Delete {
+        Vec::new()
+    } else {
+        proposed_content.as_bytes().to_vec()
+    };
+    let base_fingerprint = if operation == ProtectionOperation::Create {
+        None
+    } else {
+        Some(content_fingerprint(&base))
+    };
+    let proposed_fingerprint = content_fingerprint(&proposed);
+    let proposal_fingerprint = content_fingerprint(
+        &serde_json::to_vec(&json!([
+            operation_name(operation),
+            path,
+            base_fingerprint,
+            proposed_fingerprint
+        ]))
+        .unwrap_or_default(),
+    );
+    let (diff, additions, deletions, diff_truncated) = diff(path, &base, &proposed);
+    Ok(ChangePlan {
+        operation,
+        path: path.to_string(),
+        relative,
+        base_fingerprint,
+        proposed_fingerprint,
+        proposal_fingerprint,
+        proposed,
+        diff,
+        additions,
+        deletions,
+        diff_truncated,
+    })
+}
+
+fn diff(path: &str, base: &[u8], proposed: &[u8]) -> (String, usize, usize, bool) {
+    let mut output = format!("--- a/{path}\n+++ b/{path}\n");
+    let mut additions = 0usize;
+    let mut deletions = 0usize;
+    for line in String::from_utf8_lossy(base).lines() {
+        output.push('-');
+        output.push_str(line);
+        output.push('\n');
+        deletions += 1;
+    }
+    for line in String::from_utf8_lossy(proposed).lines() {
+        output.push('+');
+        output.push_str(line);
+        output.push('\n');
+        additions += 1;
+    }
+    let mut truncated = false;
+    if output.len() > MAX_DIFF_BYTES {
+        let marker = "\n... [diff truncated]";
+        let usable = MAX_DIFF_BYTES.saturating_sub(marker.len());
+        let mut end = usable;
+        while end > 0 && !output.is_char_boundary(end) {
+            end -= 1;
+        }
+        output.truncate(end);
+        output.push_str(marker);
+        truncated = true;
+    }
+    (output, additions, deletions, truncated)
+}
+
 pub struct ChangeExecutor;
 
 #[async_trait]
@@ -44,22 +234,6 @@ impl ToolExecutor for ChangeExecutor {
         _spec: &ToolSpec,
         host: &ToolHost<'_, '_>,
     ) -> ToolExecution {
-        let Some(operation) = call
-            .arguments
-            .get("operation")
-            .and_then(Value::as_str)
-            .and_then(ProtectionOperation::parse)
-        else {
-            return change_failure("change");
-        };
-        let Some(path) = call.arguments.get("path").and_then(Value::as_str) else {
-            return change_failure("change");
-        };
-        let proposed_content = call
-            .arguments
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
         let Some(resource) = host.facts.action.resources.first() else {
             return change_failure("change");
         };
@@ -75,78 +249,93 @@ impl ToolExecutor for ChangeExecutor {
                 Ok(root) => root,
                 Err(_) => return change_failure("change"),
             };
-        let relative = match RelativePath::parse(path) {
-            Ok(relative) => relative,
+        let plan = match plan_change(&root, call) {
+            Ok(plan) => plan,
+            Err(PlanError::Conflict) => return change_conflict(),
+            Err(PlanError::Unavailable) => return change_failure("change"),
+        };
+        if host.facts.concrete_change_id.as_deref() != Some(plan.change_id().as_str()) {
+            return change_conflict();
+        }
+        let change_record = match host.store.record_fact(
+            conversation_id,
+            context_revision,
+            Some(run_id),
+            &format!("change-{action_id}"),
+            &plan.fact(vec![resource.root_id.clone()]),
+        ) {
+            Ok(record) => record,
+            Err(AgentStoreError::Conflict) => return change_conflict(),
             Err(_) => return change_failure("change"),
         };
-        let current = match operation {
-            ProtectionOperation::Create => match root.open_read(&relative) {
-                Ok(_) => {
-                    return ToolExecution::Failed {
-                        summary: json!({"status": "failed", "code": "conflict"}),
-                    };
-                }
-                Err(error) if error.is_missing() => Vec::new(),
-                Err(_) => return change_failure("change"),
-            },
-            ProtectionOperation::Edit | ProtectionOperation::Delete => {
-                match root.read(&relative, MAX_CHANGE_BYTES) {
-                    Ok(bytes) => bytes,
-                    Err(error) if error.is_missing() => {
-                        return ToolExecution::Failed {
-                            summary: json!({"status": "failed", "code": "conflict"}),
-                        };
-                    }
-                    Err(_) => return change_failure("change"),
-                }
-            }
-        };
-        if operation != ProtectionOperation::Create {
-            let expected = call
-                .arguments
-                .get("base_version")
-                .and_then(Value::as_str)
-                .unwrap_or("absent");
-            if content_fingerprint(&current) != expected {
-                return ToolExecution::Failed {
-                    summary: json!({"status": "failed", "code": "conflict"}),
-                };
-            }
+        if !plan.revalidate(&root) {
+            return change_conflict();
         }
-        let base = String::from_utf8_lossy(&current).into_owned();
-        let proposed = if operation == ProtectionOperation::Delete {
-            String::new()
-        } else {
-            proposed_content.to_string()
-        };
-        let diff = diff(&base, &proposed);
-        let protection = git_protection::inspect(&root, operation, &relative);
-        let fact = ContextFact::ChangeSet {
-            proposal_fingerprint: content_fingerprint(diff.as_bytes()),
-            resource_keys: vec![resource.root_id.clone()],
-        };
-        if host
-            .store
-            .record_fact(
+        let inspection = git_protection::inspect(&root, plan.operation, &plan.relative);
+        let prepared = git_protection::prepare(
+            &root,
+            plan.operation,
+            &plan.relative,
+            &format!("change-{action_id}"),
+        );
+        if let Ok(protection) = &prepared {
+            let _ = host.store.record_fact(
                 conversation_id,
                 context_revision,
                 Some(run_id),
-                &format!("change-{action_id}"),
-                &fact,
-            )
-            .is_err()
-        {
-            return change_failure("change");
+                &format!("recovery-{action_id}"),
+                &ContextFact::RecoveryRecord {
+                    change_set_id: change_record.id,
+                    git_reference: protection.reference.clone(),
+                },
+            );
         }
-        ToolExecution::Failed {
-            summary: json!({
-                "status": "failed",
-                "code": "write_not_enabled",
-                "diff": diff,
-                "recovery": protection,
-                "undoAvailable": false,
-            }),
+        if !plan.revalidate(&root) {
+            return change_conflict();
         }
+        match plan.apply(&root) {
+            Ok(()) => {
+                let mut recovery = serde_json::to_value(&inspection).unwrap_or_else(|_| json!({}));
+                if let Ok(protection) = &prepared {
+                    recovery["reference"] = json!(protection.reference);
+                    recovery["commit"] = json!(protection.commit);
+                }
+                recovery["undoAvailable"] = json!(false);
+                ToolExecution::Succeeded {
+                    summary: json!({
+                        "status": "applied",
+                        "operation": operation_name(plan.operation),
+                        "path": plan.path,
+                        "changeId": plan.change_id(),
+                        "baseFingerprint": plan.base_fingerprint,
+                        "appliedFingerprint": plan.proposed_fingerprint,
+                        "additions": plan.additions,
+                        "deletions": plan.deletions,
+                        "diff": plan.diff,
+                        "diffTruncated": plan.diff_truncated,
+                        "undoAvailable": false,
+                        "recovery": recovery,
+                    }),
+                }
+            }
+            Err(error) => ToolExecution::Failed {
+                summary: json!({
+                    "status": "failed",
+                    "code": "write_failed",
+                    "operation": operation_name(plan.operation),
+                    "path": plan.path,
+                    "reason": error.kind,
+                    "recovery": inspection,
+                    "undoAvailable": false,
+                }),
+            },
+        }
+    }
+}
+
+fn change_conflict() -> ToolExecution {
+    ToolExecution::Failed {
+        summary: json!({"status": "failed", "code": "conflict"}),
     }
 }
 
@@ -158,21 +347,6 @@ fn change_failure(code: &str) -> ToolExecution {
 
 fn content_fingerprint(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-fn diff(base: &str, proposed: &str) -> String {
-    let mut output = String::new();
-    for line in base.lines() {
-        output.push('-');
-        output.push_str(line);
-        output.push('\n');
-    }
-    for line in proposed.lines() {
-        output.push('+');
-        output.push_str(line);
-        output.push('\n');
-    }
-    output
 }
 
 pub struct ChangeAuthorizer;
@@ -219,6 +393,24 @@ impl super::cycle::ToolAuthorizer for ChangeAuthorizer {
                 (root_id, p::ResourceScope::Standalone)
             }
         };
+        let root = store
+            .open_resource_root(revision.key().conversation_id, &root_id, action.id)
+            .map_err(|error| error.to_string())?;
+        let plan = plan_change(&root, call).map_err(|error| match error {
+            PlanError::Conflict => {
+                "the proposed change conflicts with the current file".to_string()
+            }
+            PlanError::Unavailable => "the proposed change could not be inspected".to_string(),
+        })?;
+        store
+            .record_fact(
+                revision.key().conversation_id,
+                revision.key().context_revision,
+                Some(action.run_id),
+                &format!("change-{}", action.id),
+                &plan.fact(vec![root_id.clone()]),
+            )
+            .map_err(|_| "the proposed change could not be recorded".to_string())?;
         let resource = p::Resource {
             root_id,
             object_id: object_id.to_string(),
@@ -261,7 +453,7 @@ impl super::cycle::ToolAuthorizer for ChangeAuthorizer {
                 network: p::NetworkControl::Disabled,
             },
             resources: vec![p::ResolvedResource { resource, scope }],
-            concrete_change_id: Some(format!("change-{}", action.id)),
+            concrete_change_id: Some(plan.change_id()),
             recovery: p::Recovery::NotGuaranteed,
             approvals: Vec::new(),
             denied_actions: Vec::new(),
@@ -397,6 +589,7 @@ mod tests {
     #[test]
     fn delete_proposal_requires_destructive_confirmation() {
         let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("a.txt"), b"content").expect("write");
         let store = fixture.store();
         let arguments = json!({"operation": "delete", "path": "a.txt"});
         let (record, revision) = propose(&store, fixture.conversation, &arguments);
@@ -417,7 +610,44 @@ mod tests {
     }
 
     #[test]
-    fn the_executor_surfaces_the_diff_without_writing() {
+    fn the_authorizer_records_a_change_set_with_the_exact_diff() {
+        let fixture = Fixture::project();
+        let store = fixture.store();
+        let arguments = json!({
+            "operation": "create",
+            "path": "new.txt",
+            "content": "hello from the proposal"
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+
+        let change_id = trusted.concrete_change_id.as_deref().expect("change id");
+        assert!(change_id.starts_with("change-"));
+        let facts = store.facts(fixture.conversation).expect("facts");
+        let change = facts
+            .iter()
+            .find_map(|fact| match &fact.fact {
+                ContextFact::ChangeSet {
+                    operation,
+                    path,
+                    diff,
+                    additions,
+                    deletions,
+                    ..
+                } if operation == "create" && path == "new.txt" => {
+                    Some((diff.clone(), *additions, *deletions))
+                }
+                _ => None,
+            })
+            .expect("change set");
+        assert_eq!(change.1, 1);
+        assert_eq!(change.2, 0);
+        assert!(change.0.contains("+hello from the proposal"));
+    }
+
+    #[test]
+    fn the_executor_applies_a_create_and_reports_recovery() {
         let fixture = Fixture::project();
         let store = fixture.store();
         let arguments = json!({
@@ -432,28 +662,30 @@ mod tests {
         let execution = run_executor(&store, &trusted, &call);
 
         match execution {
-            ToolExecution::Failed { summary } => {
-                assert_eq!(summary["status"], "failed");
-                assert_eq!(summary["code"], "write_not_enabled");
-                let diff = summary["diff"].as_str().expect("diff");
-                assert!(!diff.is_empty());
+            ToolExecution::Succeeded { summary } => {
+                assert_eq!(summary["status"], "applied");
+                assert_eq!(summary["operation"], "create");
+                assert_eq!(summary["path"], "new.txt");
+                assert_eq!(summary["undoAvailable"], false);
             }
-            other => panic!("expected failure, got {other:?}"),
+            other => panic!("expected success, got {other:?}"),
         }
-        assert!(!fixture._directory.path().join("new.txt").exists());
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("new.txt")).expect("read"),
+            b"hello from the proposal"
+        );
     }
 
     #[test]
-    fn the_executor_conflicts_when_the_base_version_mismatches() {
+    fn the_executor_applies_an_edit_and_preserves_the_new_content() {
         let fixture = Fixture::project();
-        std::fs::write(fixture._directory.path().join("a.txt"), b"original").expect("write");
+        std::fs::write(fixture._directory.path().join("a.txt"), b"before").expect("write");
         let store = fixture.store();
-        let wrong_base = content_fingerprint(b"different");
         let arguments = json!({
             "operation": "edit",
             "path": "a.txt",
-            "content": "edited",
-            "base_version": wrong_base
+            "content": "after",
+            "base_version": content_fingerprint(b"before")
         });
         let (record, revision) = propose(&store, fixture.conversation, &arguments);
         let call = call(arguments);
@@ -462,9 +694,126 @@ mod tests {
         let execution = run_executor(&store, &trusted, &call);
 
         match execution {
+            ToolExecution::Succeeded { summary } => {
+                assert_eq!(summary["status"], "applied");
+                assert_eq!(summary["operation"], "edit");
+                assert_eq!(summary["baseFingerprint"], content_fingerprint(b"before"));
+                assert_eq!(summary["appliedFingerprint"], content_fingerprint(b"after"));
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("a.txt")).expect("read"),
+            b"after"
+        );
+    }
+
+    #[test]
+    fn the_executor_applies_a_delete_and_removes_the_file() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("a.txt"), b"before").expect("write");
+        let store = fixture.store();
+        let arguments = json!({
+            "operation": "delete",
+            "path": "a.txt",
+            "base_version": content_fingerprint(b"before")
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+
+        let execution = run_executor(&store, &trusted, &call);
+
+        match execution {
+            ToolExecution::Succeeded { summary } => {
+                assert_eq!(summary["status"], "applied");
+                assert_eq!(summary["operation"], "delete");
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+        assert!(!fixture._directory.path().join("a.txt").exists());
+    }
+
+    #[test]
+    fn a_mismatched_base_version_conflicts_and_does_not_write() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("a.txt"), b"original").expect("write");
+        let store = fixture.store();
+        let valid = json!({
+            "operation": "edit",
+            "path": "a.txt",
+            "content": "edited",
+            "base_version": content_fingerprint(b"original")
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &valid);
+        let trusted = facts(&store, &revision, &record, &call(valid.clone()));
+        let stale = json!({
+            "operation": "edit",
+            "path": "a.txt",
+            "content": "edited",
+            "base_version": content_fingerprint(b"different")
+        });
+
+        let execution = run_executor(&store, &trusted, &call(stale));
+
+        match execution {
             ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
             other => panic!("expected failure, got {other:?}"),
         }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("a.txt")).expect("read"),
+            b"original"
+        );
+    }
+
+    #[test]
+    fn an_external_change_invalidates_the_approval_before_apply() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("a.txt"), b"before").expect("write");
+        let store = fixture.store();
+        let arguments = json!({
+            "operation": "edit",
+            "path": "a.txt",
+            "content": "after",
+            "base_version": content_fingerprint(b"before")
+        });
+        let (record, revision) = propose(&store, fixture.conversation, &arguments);
+        let call = call(arguments);
+        let trusted = facts(&store, &revision, &record, &call);
+        std::fs::write(fixture._directory.path().join("a.txt"), b"user work").expect("write");
+
+        let execution = run_executor(&store, &trusted, &call);
+
+        match execution {
+            ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
+            other => panic!("expected failure, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("a.txt")).expect("read"),
+            b"user work"
+        );
+    }
+
+    #[test]
+    fn creating_a_file_that_already_exists_conflicts() {
+        let fixture = Fixture::project();
+        std::fs::write(fixture._directory.path().join("existing.txt"), b"existing").expect("write");
+        let store = fixture.store();
+        let valid = json!({"operation": "create", "path": "other.txt", "content": "new"});
+        let (record, revision) = propose(&store, fixture.conversation, &valid);
+        let trusted = facts(&store, &revision, &record, &call(valid));
+        let arguments = json!({"operation": "create", "path": "existing.txt", "content": "new"});
+
+        let execution = run_executor(&store, &trusted, &call(arguments));
+
+        match execution {
+            ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
+            other => panic!("expected failure, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(fixture._directory.path().join("existing.txt")).expect("read"),
+            b"existing"
+        );
     }
 
     fn run_git(directory: &std::path::Path, args: &[&str]) -> bool {
@@ -490,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn an_untracked_target_is_reported_unprotected_without_claiming_undo() {
+    fn an_untracked_target_applies_with_an_unambiguous_warning() {
         let fixture = Fixture::project();
         assert!(initialize_repository(fixture._directory.path()));
         std::fs::write(fixture._directory.path().join("notes.txt"), b"user work").expect("write");
@@ -508,23 +857,22 @@ mod tests {
         let execution = run_executor(&store, &trusted, &call);
 
         match execution {
-            ToolExecution::Failed { summary } => {
-                assert_eq!(summary["code"], "write_not_enabled");
+            ToolExecution::Succeeded { summary } => {
+                assert_eq!(summary["status"], "applied");
                 assert_eq!(summary["undoAvailable"], false);
                 assert_eq!(summary["recovery"]["warning"]["code"], "unprotected_files");
-                assert_eq!(summary["recovery"]["files"][0]["reason"], "untracked");
                 assert_eq!(summary["recovery"]["files"][0]["eligible"], false);
             }
-            other => panic!("expected failure, got {other:?}"),
+            other => panic!("expected success, got {other:?}"),
         }
         assert_eq!(
             std::fs::read(fixture._directory.path().join("notes.txt")).expect("read"),
-            b"user work"
+            b"agent change"
         );
     }
 
     #[test]
-    fn a_tracked_dirty_target_reports_git_ready_but_not_undo_available() {
+    fn a_tracked_dirty_target_applies_and_reports_git_ready_without_undo() {
         let fixture = Fixture::project();
         assert!(initialize_repository(fixture._directory.path()));
         std::fs::write(fixture._directory.path().join("tracked.txt"), b"committed").expect("write");
@@ -552,56 +900,49 @@ mod tests {
         let execution = run_executor(&store, &trusted, &call);
 
         match execution {
-            ToolExecution::Failed { summary } => {
-                assert_eq!(summary["code"], "write_not_enabled");
+            ToolExecution::Succeeded { summary } => {
+                assert_eq!(summary["status"], "applied");
                 assert_eq!(summary["undoAvailable"], false);
                 assert_eq!(summary["recovery"]["repository"], "work_tree");
                 assert!(summary["recovery"]["warning"].is_null());
-                assert_eq!(summary["recovery"]["files"][0]["tracked"], true);
-                assert_eq!(summary["recovery"]["files"][0]["worktree"], "unstaged");
                 assert_eq!(summary["recovery"]["files"][0]["eligible"], true);
+                assert!(
+                    summary["recovery"]["reference"]
+                        .as_str()
+                        .is_some_and(|reference| reference.starts_with("refs/foundryui/recovery/"))
+                );
             }
-            other => panic!("expected failure, got {other:?}"),
+            other => panic!("expected success, got {other:?}"),
         }
         assert_eq!(
             std::fs::read(fixture._directory.path().join("tracked.txt")).expect("read"),
-            b"user worktree"
+            b"agent change"
         );
     }
 
     #[test]
-    fn creating_a_file_that_already_exists_conflicts() {
+    fn the_executor_records_a_change_set_and_recovery_fact() {
         let fixture = Fixture::project();
-        std::fs::write(fixture._directory.path().join("existing.txt"), b"existing").expect("write");
+        assert!(initialize_repository(fixture._directory.path()));
+        std::fs::write(fixture._directory.path().join("tracked.txt"), b"committed").expect("write");
+        assert!(run_git(fixture._directory.path(), &["add", "tracked.txt"]));
+        assert!(run_git(
+            fixture._directory.path(),
+            &["commit", "-qm", "tracked"]
+        ));
         let store = fixture.store();
-        let arguments = json!({"operation": "create", "path": "existing.txt", "content": "new"});
+        let arguments = json!({
+            "operation": "edit",
+            "path": "tracked.txt",
+            "content": "hello",
+            "base_version": content_fingerprint(b"committed")
+        });
         let (record, revision) = propose(&store, fixture.conversation, &arguments);
         let call = call(arguments);
         let trusted = facts(&store, &revision, &record, &call);
 
         let execution = run_executor(&store, &trusted, &call);
-
-        match execution {
-            ToolExecution::Failed { summary } => assert_eq!(summary["code"], "conflict"),
-            other => panic!("expected failure, got {other:?}"),
-        }
-        assert_eq!(
-            std::fs::read(fixture._directory.path().join("existing.txt")).expect("read"),
-            b"existing"
-        );
-    }
-
-    #[test]
-    fn the_executor_records_a_change_set_fact() {
-        let fixture = Fixture::project();
-        let store = fixture.store();
-        let arguments = json!({"operation": "create", "path": "new.txt", "content": "hello"});
-        let (record, revision) = propose(&store, fixture.conversation, &arguments);
-        let call = call(arguments);
-        let trusted = facts(&store, &revision, &record, &call);
-
-        let execution = run_executor(&store, &trusted, &call);
-        assert!(matches!(execution, ToolExecution::Failed { .. }));
+        assert!(matches!(execution, ToolExecution::Succeeded { .. }));
 
         let facts = store.facts(fixture.conversation).expect("facts");
         assert!(
@@ -609,6 +950,12 @@ mod tests {
                 .iter()
                 .any(|fact| matches!(fact.fact, ContextFact::ChangeSet { .. })),
             "expected a change set fact to be recorded"
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| matches!(fact.fact, ContextFact::RecoveryRecord { .. })),
+            "expected a recovery record fact to be recorded"
         );
     }
 }

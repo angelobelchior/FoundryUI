@@ -50,7 +50,15 @@ pub enum ContextFact {
         http_status: Option<u16>,
     },
     ChangeSet {
+        operation: String,
+        path: String,
+        base_fingerprint: Option<String>,
+        proposed_fingerprint: Option<String>,
         proposal_fingerprint: String,
+        additions: u32,
+        deletions: u32,
+        diff: String,
+        diff_truncated: bool,
         resource_keys: Vec<String>,
     },
     RecoveryRecord {
@@ -330,16 +338,45 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
             });
         }
         ContextFact::ChangeSet {
+            operation,
+            path,
+            base_fingerprint,
+            proposed_fingerprint,
             proposal_fingerprint,
+            additions,
+            deletions,
+            diff,
+            diff_truncated,
             resource_keys,
         } => {
-            validate_fingerprint(proposal_fingerprint)?;
-            if resource_keys.len() > 128 {
+            if !matches!(operation.as_str(), "create" | "edit" | "delete")
+                || path.is_empty()
+                || path.len() > 4096
+                || path.chars().any(char::is_control)
+            {
+                return Err(AgentStoreError::InvalidInput);
+            }
+            for fingerprint in [
+                base_fingerprint,
+                proposed_fingerprint,
+                &Some(proposal_fingerprint.clone()),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                validate_fingerprint(fingerprint)?;
+            }
+            if diff.len() > 131_072
+                || resource_keys.len() > 128
+                || *additions > 1_000_000
+                || *deletions > 1_000_000
+            {
                 return Err(AgentStoreError::InvalidInput);
             }
             for key in resource_keys {
                 validate_identity(key)?;
             }
+            let _ = diff_truncated;
         }
         ContextFact::RecoveryRecord {
             change_set_id,

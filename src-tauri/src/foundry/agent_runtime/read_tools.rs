@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::cycle::{ToolExecution, ToolExecutor, ToolHost};
 use super::parser::ToolCall;
@@ -75,12 +76,14 @@ impl ToolExecutor for ReadExecutor {
         if !host.reads_current() {
             return read_failure("read_restricted");
         }
+        let version = format!("{:x}", Sha256::digest(&bytes));
         ToolExecution::Succeeded {
             summary: json!({
                 "status": "succeeded",
                 "content": String::from_utf8_lossy(&bytes),
                 "bytes": bytes.len(),
-                "truncated": truncated
+                "truncated": truncated,
+                "version": version
             }),
         }
     }
