@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS agent_context_facts (
   payload_json TEXT NOT NULL CHECK (
     json_valid(payload_json) AND COALESCE(json_extract(payload_json, '$.kind') IN (
       'permission_grant', 'authorized_root', 'instruction_approval', 'context_manifest',
-      'network_event', 'change_set', 'recovery_record'
+      'context_budget', 'network_event', 'change_set', 'recovery_record'
     ), 0)
   ),
   payload_fingerprint TEXT NOT NULL,

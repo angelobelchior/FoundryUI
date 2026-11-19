@@ -2,6 +2,7 @@ mod approvals;
 mod change_tools;
 mod command_tools;
 mod composite;
+mod context_budget;
 mod context_search;
 mod cycle;
 mod instructions;
@@ -34,6 +35,10 @@ pub use schema::{
 pub use change_tools::{ChangeAuthorizer, ChangeExecutor};
 pub use command_tools::CommandAuthorizer;
 pub use composite::{ToolAuthorizerSet, ToolExecutorSet};
+pub use context_budget::{
+    CapacityOrigin, Manifest as ContextManifest, OmissionEntry, Plan as ContextPlan,
+    PlanRequest as ContextPlanRequest, SourceEntry, SourceMode, plan as plan_context,
+};
 pub use context_search::{SearchAuthorizer, SearchExecutor, with_retrieved_context};
 pub use network_tools::{NetworkAuthorizer, NetworkExecutor};
 pub use read_tools::{ReadAuthorizer, ReadExecutor};

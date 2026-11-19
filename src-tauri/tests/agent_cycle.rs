@@ -15,7 +15,8 @@ use foundryui_lib::foundry::db::agent::authorization::{
     AuthorizationRequest, AuthorizationRevision, AuthorizationStatus, RequestDecision,
 };
 use foundryui_lib::foundry::db::agent::{
-    ActionOutcome, ActionRecord, ActionState, AgentMode, AgentStoreError, HistoryContent, RunState,
+    ActionOutcome, ActionRecord, ActionState, AgentMode, AgentStoreError, ContextFact,
+    HistoryContent, RunState,
 };
 use foundryui_lib::foundry::policy as p;
 use foundryui_lib::foundry::resources::RootHandle;
@@ -1657,4 +1658,44 @@ fn a_denied_network_call_is_logged_as_blocked_without_an_attempt() {
         ]
     );
     assert!(!serde_json::to_string(&log).unwrap().contains("synthetic"));
+}
+
+#[test]
+fn each_model_call_persists_a_conservative_context_budget_manifest() {
+    let fixture = Fixture::project();
+    let registry = registry();
+    let mut provider = ScriptedProvider::new(vec![final_turn()]);
+    let mut executor = RecordingExecutor::new(json!({"content": "fixture"}));
+    let mut approvals = ScriptedApprovals {
+        choice: ApprovalChoice::Deny,
+    };
+    let outcome = run(
+        &fixture,
+        &registry,
+        &mut provider,
+        &mut executor,
+        &ReadAuthorizer {
+            root: &fixture.root,
+        },
+        &mut approvals,
+        &limits(),
+        &(),
+    );
+    assert!(matches!(outcome, CycleOutcome::Completed { steps: 1, .. }));
+
+    let facts = fixture.store().facts(fixture.conversation).expect("facts");
+    let manifests = facts
+        .iter()
+        .filter_map(|fact| match &fact.fact {
+            ContextFact::ContextBudget { manifest_json } => Some(manifest_json.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(manifests.len(), 1);
+    let manifest: Value = serde_json::from_str(&manifests[0]).expect("manifest");
+    assert_eq!(manifest["capacity_origin"], "conservative");
+    assert_eq!(manifest["warning"], "context.capacity_conservative");
+    assert_eq!(manifest["capacity_tokens"], 8192);
+    assert_eq!(manifest["sources"][0]["kind"], "user");
+    assert_eq!(manifest["omitted_messages"], 0);
 }

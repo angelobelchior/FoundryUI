@@ -529,7 +529,30 @@ async fn stream_completion<S: StreamSink>(
         messages,
         16_384,
     );
-
+    let plan = super::agent_runtime::plan_context(super::agent_runtime::ContextPlanRequest {
+        messages,
+        capacity_tokens: None,
+        max_input_bytes: Some(262_144),
+        requested_output_tokens: context
+            .params
+            .as_ref()
+            .and_then(|params| params.max_tokens)
+            .map(|tokens| tokens as usize),
+    });
+    let store = context.database.agent_store();
+    if let (Ok(revision), Ok(manifest)) = (
+        store.authorization_revision(context.conversation.id),
+        serde_json::to_string(&plan.manifest),
+    ) {
+        let _ = store.record_context_budget(
+            context.conversation.id,
+            revision.key().context_revision,
+            None,
+            &format!("context_budget.message.{}", context.assistant_message.id),
+            &manifest,
+        );
+    }
+    let messages = plan.messages;
 
     let mut payload = json!({
         "model": context.model_id,

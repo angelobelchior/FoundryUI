@@ -1247,3 +1247,51 @@ fn a_failed_run_keeps_a_single_failure_event() {
     assert_eq!(failures, 1);
     assert_eq!(store.run(run.id).expect("run").state, RunState::Failed);
 }
+
+#[test]
+fn a_context_budget_manifest_is_persisted_and_validated() {
+    let database = Database::open_in_memory().expect("database");
+    let conversation = database
+        .create_conversation("fixture-model")
+        .expect("conversation");
+    let store = database.agent_store();
+    let revision = store
+        .authorization_revision(conversation.id)
+        .expect("revision");
+    let manifest = json!({
+        "capacity_tokens": 8192,
+        "capacity_origin": "conservative",
+        "sources": [],
+        "omissions": [],
+    })
+    .to_string();
+
+    let record = store
+        .record_context_budget(
+            conversation.id,
+            revision.key().context_revision,
+            None,
+            "context_budget.message.1",
+            &manifest,
+        )
+        .expect("budget");
+    assert!(matches!(record.fact, ContextFact::ContextBudget { .. }));
+    assert!(
+        store
+            .facts(conversation.id)
+            .expect("facts")
+            .iter()
+            .any(|fact| matches!(fact.fact, ContextFact::ContextBudget { .. }))
+    );
+
+    assert!(matches!(
+        store.record_context_budget(
+            conversation.id,
+            revision.key().context_revision,
+            None,
+            "context_budget.message.2",
+            "not-json",
+        ),
+        Err(AgentStoreError::InvalidInput)
+    ));
+}

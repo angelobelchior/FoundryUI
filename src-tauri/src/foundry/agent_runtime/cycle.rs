@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
+use super::context_budget::{PlanRequest, plan};
 use super::parser::ToolCall;
 use super::schema::{ToolAvailability, ToolRegistry, ToolSpec, ToolUnavailable};
 use crate::foundry::db::MessageRole;
@@ -502,11 +503,26 @@ impl Driver<'_, '_> {
             }
             steps += 1;
             self.event(CycleEventKind::TurnStarted { step: steps })?;
+            let plan = plan(PlanRequest {
+                messages: messages.clone(),
+                capacity_tokens: None,
+                max_input_bytes: Some(self.limits.max_input_bytes),
+                requested_output_tokens: None,
+            });
+            if let Ok(manifest) = serde_json::to_string(&plan.manifest) {
+                let _ = self.store.record_context_budget(
+                    self.conversation_id,
+                    self.run.context_revision,
+                    Some(self.run.id),
+                    &format!("context_budget.{}.{}", self.run.id, steps),
+                    &manifest,
+                );
+            }
             let turn = match within(
                 started,
                 self.limits.max_duration,
                 provider.next_turn(ModelRequest {
-                    messages: messages.clone(),
+                    messages: plan.messages,
                     tools: self.definitions.clone(),
                 }),
             )

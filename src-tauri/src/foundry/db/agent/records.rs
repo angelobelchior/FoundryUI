@@ -41,6 +41,9 @@ pub enum ContextFact {
     ContextManifest {
         sources: Vec<SourceReference>,
     },
+    ContextBudget {
+        manifest_json: String,
+    },
     NetworkEvent {
         destination: String,
         state: NetworkEventState,
@@ -139,6 +142,25 @@ impl AgentStore<'_> {
         )?;
         transaction.commit().map_err(store_error)?;
         Ok(record)
+    }
+
+    pub fn record_context_budget(
+        &self,
+        conversation_id: i64,
+        expected_revision: i64,
+        run_id: Option<i64>,
+        key: &str,
+        manifest_json: &str,
+    ) -> AgentStoreResult<FactRecord> {
+        self.record_fact(
+            conversation_id,
+            expected_revision,
+            run_id,
+            key,
+            &ContextFact::ContextBudget {
+                manifest_json: manifest_json.to_string(),
+            },
+        )
     }
 
     pub fn fact(&self, conversation_id: i64, id: i64) -> AgentStoreResult<FactRecord> {
@@ -267,6 +289,15 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
             for source in sources {
                 validate_identity(&source.identity_key)?;
                 validate_fingerprint(&source.content_fingerprint)?;
+            }
+        }
+        ContextFact::ContextBudget { manifest_json } => {
+            if manifest_json.len() > 131_072
+                || !serde_json::from_str::<serde_json::Value>(manifest_json)
+                    .map(|value| value.is_object())
+                    .unwrap_or(false)
+            {
+                return Err(AgentStoreError::InvalidInput);
             }
         }
         ContextFact::NetworkEvent {
