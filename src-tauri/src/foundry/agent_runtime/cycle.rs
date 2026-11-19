@@ -209,9 +209,19 @@ pub enum ToolExecution {
     Failed { summary: Value },
 }
 
+pub struct ToolHost<'a, 'db> {
+    pub store: &'a AgentStore<'db>,
+    pub facts: &'a p::TrustedFacts,
+}
+
 #[async_trait]
 pub trait ToolExecutor: Send {
-    async fn execute(&mut self, call: &ToolCall, spec: &ToolSpec) -> ToolExecution;
+    async fn execute(
+        &mut self,
+        call: &ToolCall,
+        spec: &ToolSpec,
+        host: &ToolHost<'_, '_>,
+    ) -> ToolExecution;
 }
 
 pub trait ToolAuthorizer: Send + Sync {
@@ -858,7 +868,14 @@ impl Driver<'_, '_> {
         let execution = match within(
             self.started,
             self.limits.max_duration,
-            self.executor.execute(call, &spec),
+            self.executor.execute(
+                call,
+                &spec,
+                &ToolHost {
+                    store: self.store,
+                    facts,
+                },
+            ),
         )
         .await
         {

@@ -269,6 +269,32 @@ impl AgentStore<'_> {
         Ok(root)
     }
 
+    pub fn open_resource_root(
+        &self,
+        conversation_id: i64,
+        root_id: &str,
+        action_id: i64,
+    ) -> AgentStoreResult<RootHandle> {
+        let connection = self.database.connection();
+        let current = revision(
+            &connection,
+            conversation_id,
+            &self.database.authority_instance,
+        )?;
+        let path = root_path(&connection, &current, root_id, action_id)?;
+        let handle = RootHandle::enroll(std::path::Path::new(&path))
+            .map_err(|_| AgentStoreError::Conflict)?;
+        if handle
+            .identity()
+            .map_err(|_| AgentStoreError::Conflict)?
+            .storage_key()
+            != root_id
+        {
+            return Err(AgentStoreError::Conflict);
+        }
+        Ok(handle)
+    }
+
     pub fn grant_authorization_root(
         &self,
         expected: &AuthorizationRevision,

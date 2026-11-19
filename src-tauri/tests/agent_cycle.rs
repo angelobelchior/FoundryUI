@@ -211,7 +211,12 @@ impl RecordingExecutor {
 
 #[async_trait]
 impl ToolExecutor for RecordingExecutor {
-    async fn execute(&mut self, call: &ToolCall, _spec: &ToolSpec) -> ToolExecution {
+    async fn execute(
+        &mut self,
+        call: &ToolCall,
+        _spec: &ToolSpec,
+        _host: &foundryui_lib::foundry::agent_runtime::ToolHost<'_, '_>,
+    ) -> ToolExecution {
         self.calls.push(call.clone());
         if self.failing {
             ToolExecution::Failed {
