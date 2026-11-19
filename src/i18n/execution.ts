@@ -1,7 +1,7 @@
 export const executionEnglish = {
   livePendingHint: "Waiting for your decision. The same run continues only after a valid authorization; denying returns a denial to the model.",
   noPreview: "A complete preview is unavailable. This action cannot be approved.",
-  allowOnce: "Review and allow once", deny: "Deny", waitingDecision: "Waiting for confirmation…", request: "Authorization request {{id}}",
+  allowOnce: "Review and allow once", remember: "Approve and remember", deny: "Deny", waitingDecision: "Waiting for confirmation…", request: "Authorization request {{id}}",
   title: "Agent execution", enabled: "Use tools", mode: "Changes", review: "Review changes", automatic: "Automatic",
   modeHint: "Changing mode does not approve pending actions or stop a run.",
   limits: "Commands and file writes remain unavailable. Stop does not undo completed effects.",
@@ -21,7 +21,7 @@ export const executionEnglish = {
 export const executionPortuguese: typeof executionEnglish = {
   livePendingHint: "Aguardando sua decisão. A mesma execução só continua após uma autorização válida; negar retorna uma recusa ao modelo.",
   noPreview: "A prévia completa não está disponível. Esta ação não pode ser aprovada.",
-  allowOnce: "Revisar e permitir uma vez", deny: "Negar", waitingDecision: "Aguardando confirmação…", request: "Solicitação de autorização {{id}}",
+  allowOnce: "Revisar e permitir uma vez", remember: "Aprovar e lembrar", deny: "Negar", waitingDecision: "Aguardando confirmação…", request: "Solicitação de autorização {{id}}",
   title: "Execução do agente", enabled: "Usar ferramentas", mode: "Alterações", review: "Revisar alterações", automatic: "Automático",
   modeHint: "Mudar o modo não aprova ações pendentes nem interrompe a execução.",
   limits: "Comandos e escrita de arquivos continuam indisponíveis. Parar não desfaz efeitos concluídos.",
@@ -41,7 +41,7 @@ export const executionPortuguese: typeof executionEnglish = {
 export const executionSpanish: typeof executionEnglish = {
   livePendingHint: "Esperando tu decisión. La misma ejecución continúa solo después de una autorización válida; denegar devuelve un rechazo al modelo.",
   noPreview: "La vista previa completa no está disponible. Esta acción no puede aprobarse.",
-  allowOnce: "Revisar y permitir una vez", deny: "Denegar", waitingDecision: "Esperando confirmación…", request: "Solicitud de autorización {{id}}",
+  allowOnce: "Revisar y permitir una vez", remember: "Aprobar y recordar", deny: "Denegar", waitingDecision: "Esperando confirmación…", request: "Solicitud de autorización {{id}}",
   title: "Ejecución del agente", enabled: "Usar herramientas", mode: "Cambios", review: "Revisar cambios", automatic: "Automático",
   modeHint: "Cambiar el modo no aprueba acciones pendientes ni detiene la ejecución.",
   limits: "Los comandos y la escritura de archivos siguen deshabilitados. Detener no deshace efectos completados.",

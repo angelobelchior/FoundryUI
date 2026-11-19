@@ -3,11 +3,12 @@ import es from "./locales/es.json";
 import ptBR from "./locales/pt-BR.json";
 import { executionEnglish, executionPortuguese, executionSpanish } from "./execution";
 import { accessEnglish, accessPortuguese, accessSpanish } from "./access";
+import { permissionsEnglish, permissionsPortuguese, permissionsSpanish } from "./permissions";
 
 export const resources = {
-  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish } },
-  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese } },
-  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish } },
+  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish, permissions: permissionsEnglish } },
+  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese, permissions: permissionsPortuguese } },
+  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish, permissions: permissionsSpanish } },
 };
 
 export type TranslationSchema = typeof resources.en.translation;

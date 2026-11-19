@@ -5,6 +5,7 @@ import { executionStage } from "../../lib/execution";
 import { projectControlFocus } from "./projectFocus";
 import type { useAgentExecution } from "./useAgentExecution";
 import { ReadNetworkPanel } from "./ReadNetworkPanel";
+import { PermissionsPanel } from "./PermissionsPanel";
 
 export function AgentExecution({ agent, compatible, disabled, hasAttachments }: {
   agent: ReturnType<typeof useAgentExecution>;
@@ -49,6 +50,7 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
       {status?.pendingRequests?.length ? <div className="mt-2 max-h-48 overflow-y-auto">
         {status.pendingRequests.map((request) => {
           const previewAvailable = request.requirements.length > 0 && request.requirements.every((requirement) => requirement.previewAvailable);
+          const rememberEligible = request.requirements.length > 0 && request.requirements.every((requirement) => requirement.rememberEligible);
           return <div key={request.id} className="border-t border-line py-2">
             <p className="font-medium">{t("execution.request", { id: request.id })}</p>
             {request.requirements.map((requirement, index) => <p key={`${requirement.constraintsFingerprint}-${index}`} className="whitespace-pre-wrap break-words">{requirement.target}</p>)}
@@ -56,6 +58,8 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
             <div className="mt-2 flex flex-wrap gap-2">
               <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping || !status.continuationAvailable || !previewAvailable}
                 onClick={() => void agent.decide(request.id, { decision: "approve", remember: false })}>{t("execution.allowOnce")}</button>
+              {rememberEligible ? <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping || !status.continuationAvailable || !previewAvailable}
+                onClick={() => void agent.decide(request.id, { decision: "approve", remember: true })}>{t("execution.remember")}</button> : null}
               <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping}
                 onClick={() => void agent.decide(request.id, { decision: "deny" })}>{t("execution.deny")}</button>
               {agent.deciding === request.id ? <span role="status">{t("execution.waitingDecision")}</span> : null}
@@ -81,6 +85,7 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
         </ol>
       </details> : null}
       {status ? <ReadNetworkPanel key={status.conversationId} conversationId={status.conversationId} onPreferenceChanged={() => void agent.refresh()} /> : null}
+      {status ? <PermissionsPanel key={`permissions-${status.conversationId}`} conversationId={status.conversationId} onChanged={() => void agent.refresh()} /> : null}
       <Modal open={confirm !== null} title={t("execution.confirm", { title: confirm?.title ?? "" })} onClose={() => { if (!agent.stopping) setConfirm(null); }}>
         <p className="text-[14px] leading-relaxed text-primary">{t("execution.confirmHint")}</p>
         {agent.error ? <p role="alert" className="mt-3 text-[14px] leading-relaxed text-primary">{t("execution.error")}</p> : null}
