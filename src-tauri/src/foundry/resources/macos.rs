@@ -7,6 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use super::VersionedRead;
 use super::{
     DirectoryEntry, DirectoryEntryKind, ResourceError, ResourceErrorKind, ResourceResult,
     RootIdentity,
@@ -253,6 +254,47 @@ pub(super) fn read_bounded(file: &mut File, max_bytes: usize) -> ResourceResult<
         });
     }
     Ok(bytes)
+}
+
+fn file_identity(metadata: &libc::stat) -> String {
+    format!(
+        "darwin:{:x}:{:x}:{:x}:{:x}:{:x}",
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_gen,
+        metadata.st_birthtime,
+        metadata.st_birthtime_nsec
+    )
+}
+
+fn file_version(metadata: &libc::stat) -> String {
+    format!(
+        "{}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+        file_identity(metadata),
+        metadata.st_size,
+        metadata.st_mtime,
+        metadata.st_mtime_nsec,
+        metadata.st_ctime,
+        metadata.st_ctime_nsec,
+        metadata.st_mode
+    )
+}
+
+pub(super) fn read_versioned(file: &mut File, max_bytes: usize) -> ResourceResult<VersionedRead> {
+    let before = stat(file)?;
+    let bytes = read_bounded(file, max_bytes)?;
+    let after = stat(file)?;
+    if file_version(&before) != file_version(&after) {
+        return Err(ResourceError {
+            kind: ResourceErrorKind::ResourceChanged,
+            raw_os_error: None,
+        });
+    }
+    Ok(VersionedRead {
+        bytes,
+        identity_key: file_identity(&after),
+        version_key: file_version(&after),
+    })
 }
 
 pub(super) fn create_new(root: &File, path: &Path, content: &[u8]) -> ResourceResult<()> {

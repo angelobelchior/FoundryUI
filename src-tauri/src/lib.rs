@@ -35,6 +35,7 @@ use foundry::commands::{
     speech_update_transcription, workspace_snapshot,
 };
 use foundry::db::Database;
+use foundry::instruction_commands::{instructions_decide, instructions_discover};
 use foundry::lifecycle_commands::{projects_move_conversation, projects_remove};
 use foundry::permission_commands::{
     authorization_decide, authorization_grants, authorization_pick_root, authorization_requests,
@@ -96,6 +97,8 @@ pub fn run() {
             access_read_preference,
             access_set_read_preference,
             access_network_log,
+            instructions_discover,
+            instructions_decide,
             projects_move_conversation,
             projects_remove,
             projects_list_conversations,

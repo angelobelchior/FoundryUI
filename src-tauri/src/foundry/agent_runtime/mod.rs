@@ -4,6 +4,7 @@ mod command_tools;
 mod composite;
 mod context_search;
 mod cycle;
+mod instructions;
 mod network_tools;
 mod parser;
 mod provider;
@@ -12,6 +13,7 @@ mod schema;
 
 use crate::foundry::db::agent::AgentStore;
 pub use approvals::PersistedApprovals;
+pub use instructions::with_approved_instructions;
 
 pub use cycle::{
     ApprovalChoice, ApprovalProvider, ChatOnlyReason, CycleDeps, CycleEvent, CycleEventKind,
@@ -46,7 +48,7 @@ pub fn register_agent_tools(registry: &mut ToolRegistry) -> Result<(), ToolSpecE
 
 pub async fn run_agent_cycle(
     store: &AgentStore<'_>,
-    request: CycleRequest,
+    mut request: CycleRequest,
     provider: &mut dyn TurnProvider,
     sink: &dyn CycleSink,
 ) -> CycleOutcome {
@@ -61,11 +63,22 @@ pub async fn run_agent_cycle(
     let authorizer = ToolAuthorizerSet;
     let mut approvals = PersistedApprovals;
     let limits = CycleLimits::default();
+    request.messages.insert(
+        0,
+        serde_json::json!({"role": "system", "content": instructions::GUIDANCE_POLICY}),
+    );
+    let mut provider = instructions::InstructionProvider {
+        store,
+        conversation_id: request.conversation_id,
+        provider,
+        max_input_bytes: limits.max_input_bytes,
+        targets: Vec::new(),
+    };
     run_cycle(
         store,
         CycleDeps {
             registry: &registry,
-            provider,
+            provider: &mut provider,
             executor: &mut executor,
             authorizer: &authorizer,
             approvals: &mut approvals,

@@ -503,6 +503,27 @@ async fn stream_completion<S: StreamSink>(
         Err(error) => return cancelled_or_failed(&mut cancellation, error, &buffer, usage),
     };
 
+    let messages = match super::agent_runtime::with_approved_instructions(
+        &context.database.agent_store(),
+        context.conversation.id,
+        messages,
+        262_144,
+    ) {
+        Ok(messages) => messages,
+        Err(detail) => {
+            return cancelled_or_failed(
+                &mut cancellation,
+                FoundryError::CommandFailed {
+                    command: "instruction_context".into(),
+                    message: detail,
+                    hint: None,
+                },
+                &buffer,
+                usage,
+            );
+        }
+    };
+
     let mut payload = json!({
         "model": context.model_id,
         "messages": messages,

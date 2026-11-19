@@ -139,7 +139,33 @@ pub struct OpenedRead<'a> {
     root: &'a RootHandle,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionedRead {
+    pub bytes: Vec<u8>,
+    pub identity_key: String,
+    pub version_key: String,
+}
+
 impl OpenedRead<'_> {
+    pub fn read_versioned(self, max_bytes: usize) -> ResourceResult<VersionedRead> {
+        self.root.check_revoked()?;
+        #[cfg(target_os = "macos")]
+        {
+            let mut file = self.file;
+            let result = macos::read_versioned(&mut file, max_bytes)?;
+            self.root.check_revoked()?;
+            Ok(result)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = max_bytes;
+            Err(ResourceError {
+                kind: ResourceErrorKind::UnsupportedPlatform,
+                raw_os_error: None,
+            })
+        }
+    }
+
     pub fn read(self, max_bytes: usize) -> ResourceResult<Vec<u8>> {
         self.root.check_revoked()?;
         #[cfg(target_os = "macos")]

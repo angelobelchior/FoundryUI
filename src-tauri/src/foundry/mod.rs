@@ -16,6 +16,7 @@ pub mod error;
 pub mod export;
 pub mod harmony;
 pub mod http;
+pub mod instruction_commands;
 pub mod jobs;
 pub mod json;
 pub mod lifecycle_commands;

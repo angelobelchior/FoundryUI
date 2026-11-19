@@ -124,3 +124,17 @@ CREATE TABLE IF NOT EXISTS agent_context_cycle_receipts (
   plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
   result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json))
 );
+
+CREATE TABLE IF NOT EXISTS agent_instruction_decisions (
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  context_revision INTEGER NOT NULL,
+  authorization_revision INTEGER NOT NULL,
+  root_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  identity_key TEXT NOT NULL,
+  version_key TEXT NOT NULL,
+  content_fingerprint TEXT NOT NULL CHECK(length(content_fingerprint) = 64),
+  decision TEXT NOT NULL CHECK(decision IN ('approved', 'denied')),
+  decided_at INTEGER NOT NULL,
+  PRIMARY KEY(conversation_id, context_revision, authorization_revision, root_id, path, identity_key, version_key, content_fingerprint)
+);

@@ -4,6 +4,7 @@ mod context;
 mod context_cycle;
 mod execution;
 mod history;
+mod instructions;
 mod lifecycle;
 mod network;
 mod projects;
@@ -15,6 +16,8 @@ mod snapshots;
 mod authorization_tests;
 #[cfg(test)]
 mod concurrency_tests;
+#[cfg(all(test, target_os = "macos"))]
+mod instruction_tests;
 #[cfg(test)]
 mod snapshot_tests;
 
@@ -25,6 +28,10 @@ pub use context_cycle::{
 };
 pub use execution::{ExecutionEvent, ExecutionRun};
 pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
+pub use instructions::{
+    InstructionDiscovery, InstructionOmission, InstructionOmissionReason, InstructionPreview,
+    InstructionSource, InstructionStatus, InstructionTarget,
+};
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use network::{NetworkLogEntry, NetworkLogPage, sanitized_destination};
 pub use projects::{ProjectAvailability, ProjectConversation};
