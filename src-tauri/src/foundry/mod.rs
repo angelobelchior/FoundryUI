@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod chat;
 pub mod cli;
 pub mod commands;
+pub mod context_commands;
 pub mod db;
 pub mod download;
 pub mod embeddings;

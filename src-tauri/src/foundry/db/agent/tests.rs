@@ -1310,4 +1310,8 @@ fn a_context_budget_manifest_is_persisted_and_validated() {
         ),
         Err(AgentStoreError::InvalidInput)
     ));
+
+    let budgets = store.context_budgets(conversation.id).expect("budgets");
+    assert_eq!(budgets.len(), 1);
+    assert!(matches!(budgets[0].fact, ContextFact::ContextBudget { .. }));
 }

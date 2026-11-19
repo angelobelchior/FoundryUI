@@ -34,6 +34,7 @@ use foundry::commands::{
     speech_set_transcription_archived, speech_set_transcription_favorite, speech_transcribe,
     speech_update_transcription, workspace_snapshot,
 };
+use foundry::context_commands::context_budgets;
 use foundry::db::Database;
 use foundry::instruction_commands::{instructions_decide, instructions_discover};
 use foundry::lifecycle_commands::{projects_move_conversation, projects_remove};
@@ -93,6 +94,7 @@ pub fn run() {
             authorization_decide,
             recovery_list,
             recovery_undo,
+            context_budgets,
             agent_run_start,
             agent_run_cancel,
             agent_execution_status,

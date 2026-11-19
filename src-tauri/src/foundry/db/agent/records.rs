@@ -171,6 +171,17 @@ impl AgentStore<'_> {
         )
     }
 
+    pub fn context_budgets(&self, conversation_id: i64) -> AgentStoreResult<Vec<FactRecord>> {
+        let facts = self.facts(conversation_id)?;
+        let mut budgets = facts
+            .into_iter()
+            .filter(|fact| matches!(fact.fact, ContextFact::ContextBudget { .. }))
+            .collect::<Vec<_>>();
+        budgets.sort_by_key(|fact| std::cmp::Reverse(fact.id));
+        budgets.truncate(200);
+        Ok(budgets)
+    }
+
     pub fn fact(&self, conversation_id: i64, id: i64) -> AgentStoreResult<FactRecord> {
         read_fact(&self.database.connection(), conversation_id, id)
     }
