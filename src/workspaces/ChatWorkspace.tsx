@@ -84,6 +84,8 @@ import { projectErrorLabel } from "./chat/projectErrors";
 import { ProjectCreateDialog } from "./chat/ProjectCreateDialog";
 import { projectControlFocus } from "./chat/projectFocus";
 import { cx } from "../lib/cx";
+import { AgentExecution } from "./chat/AgentExecution";
+import { useAgentExecution } from "./chat/useAgentExecution";
 
 const THREAD_PAGE_SIZE = 80;
 
@@ -183,6 +185,15 @@ export function ChatWorkspace({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [jumpNonce, setJumpNonce] = useState(0);
   const selected = conversations?.find((conversation) => conversation.id === selectedId) ?? null;
+  const refreshAgentMessages = useCallback((id: number) => {
+    void listMessages(id, null, THREAD_PAGE_SIZE).then((page) => {
+      if (selectedIdRef.current === id) setMessages((current) => mergeMessages(current, page.messages));
+    }).catch(() => {});
+  }, []);
+  const agent = useAgentExecution(selectedId, refreshAgentMessages);
+  const agentCompatible = (catalog ?? []).some((model) =>
+    (model.alias === selected?.modelAlias || model.id === selected?.modelAlias) && model.supportsToolCalling,
+  );
   const chatModels = (loaded ?? []).filter(isChatModel);
   const cachedChatModels = (catalog ?? []).filter(
     (model) => (model.kind === "chat" || model.kind === "multimodal") && model.cached,
@@ -203,7 +214,7 @@ export function ChatWorkspace({
     inputModalities !== null &&
     inputModalities.origin !== "notDeclared" &&
     !(inputModalities.value ?? []).includes("image");
-  const attachEnabled = !attachBlocked && active === null && !sending;
+  const attachEnabled = !attachBlocked && active === null && !sending && !agent.enabled && !agent.busy;
   const attachHint = attachBlocked
     ? t("chat.attachDisabled")
     : notDeclared
@@ -1035,7 +1046,7 @@ export function ChatWorkspace({
     const content = draft.trim();
     const tokens = attachments.map((attachment) => attachment.token);
 
-    if (!selected || (!content && tokens.length === 0) || active || sending || loadingModelAlias !== null) {
+    if (!selected || (!content && tokens.length === 0) || active || agent.busy || sending || loadingModelAlias !== null) {
       return;
     }
 
@@ -1047,6 +1058,18 @@ export function ChatWorkspace({
 
     try {
       await ensureConversationModelLoaded(selected);
+
+      if (agent.enabled) {
+        if (tokens.length > 0) return;
+        const receipt = await agent.start(content);
+        setDrafts((current) => ({ ...current, [conversationId]: "" }));
+        setConversations((current) => mergeVisibleConversation(current, receipt.conversation));
+        if (selectedIdRef.current === conversationId) {
+          setMessages((current) => mergeMessages(current, [receipt.userMessage, receipt.assistantMessage]));
+          refreshAgentMessages(conversationId);
+        }
+        return;
+      }
 
       const receipt = await runWithGenerationRecovery(selected, () =>
         sendChatMessage({
@@ -1300,6 +1323,10 @@ export function ChatWorkspace({
   }
 
   async function stop() {
+    if (agent.busy) {
+      await agent.cancel();
+      return;
+    }
     const current = activeRef.current;
 
     if (!current) {
@@ -1540,7 +1567,7 @@ export function ChatWorkspace({
       : t("chat.emptyBody");
   const missingDownloadedChatModels = catalog !== null && cachedChatModels.length === 0;
   const missingLoadedChatModels = catalog !== null && chatModels.length === 0 && cachedChatModels.length > 0;
-  const actionsDisabled = active !== null || sending;
+  const actionsDisabled = active !== null || sending || agent.busy;
   const filteredConversations = useMemo(() => {
     const query = listQuery.trim().toLocaleLowerCase();
 
@@ -1578,7 +1605,7 @@ export function ChatWorkspace({
     <ProjectContext
       key={selectedProject.id}
       project={selectedProject}
-      mode={selectedId === null ? undefined : conversationContexts[selectedId]?.mode}
+      mode={agent.status?.mode ?? (selectedId === null ? undefined : conversationContexts[selectedId]?.mode)}
       disabled={actionsDisabled}
       busy={projectBusy}
       error={projectError}
@@ -1869,11 +1896,18 @@ export function ChatWorkspace({
             />
           )}
 
+          <AgentExecution
+            key={selected.id}
+            agent={agent}
+            compatible={agentCompatible}
+            disabled={active !== null || sending}
+            hasAttachments={attachments.length > 0}
+          />
           <Composer
             value={draft}
             sending={sending}
-            active={active !== null}
-            stopping={stopping}
+            active={active !== null || agent.busy}
+            stopping={stopping || agent.stopping}
             modelLabel={selected.modelAlias}
             attachments={attachments}
             attachEnabled={attachEnabled}

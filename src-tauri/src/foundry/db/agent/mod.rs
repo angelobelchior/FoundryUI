@@ -2,6 +2,7 @@ pub mod authorization;
 mod concurrency;
 mod context;
 mod context_cycle;
+mod execution;
 mod history;
 mod lifecycle;
 mod projects;
@@ -21,6 +22,7 @@ pub use context::{AgentMode, ConversationContext, ProjectRecord};
 pub use context_cycle::{
     ContextCycleOperation, ContextCyclePlan, ContextCycleResult, ProjectRemovalMode,
 };
+pub use execution::{ExecutionEvent, ExecutionRun};
 pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
 pub use lifecycle::{ActionClaim, ActionOutcome, ApprovalDecision};
 pub use projects::{ProjectAvailability, ProjectConversation};

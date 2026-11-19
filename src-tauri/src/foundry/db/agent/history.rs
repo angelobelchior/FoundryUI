@@ -72,6 +72,8 @@ pub enum AgentEventState {
     AuthorizationPending,
     Started,
     ToolRejected,
+    ToolCompleted,
+    ToolFailed,
     LimitReached,
     RunCompleted,
     RunFailed,

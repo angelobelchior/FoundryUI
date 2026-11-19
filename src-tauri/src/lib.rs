@@ -3,6 +3,9 @@ pub mod foundry;
 use std::sync::Arc;
 
 use foundry::AppState;
+use foundry::agent_run_commands::{
+    agent_execution_mode, agent_execution_status, agent_run_cancel, agent_run_start,
+};
 use foundry::attachments::AttachmentStore;
 use foundry::commands::{
     attachment_data, attachment_discard, attachment_store, cache_clear_all, cache_info,
@@ -83,6 +86,10 @@ pub fn run() {
             authorization_revoke,
             authorization_pick_root,
             authorization_decide,
+            agent_run_start,
+            agent_run_cancel,
+            agent_execution_status,
+            agent_execution_mode,
             projects_move_conversation,
             projects_remove,
             projects_list_conversations,
