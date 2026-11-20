@@ -4,7 +4,15 @@ import type { ChatParams } from "./chat";
 export const paramScopes = ["global", "model", "conversation"] as const;
 export type ParamScope = (typeof paramScopes)[number];
 
-export const paramFields = ["temperature", "topP", "maxTokens", "seed", "stop"] as const;
+export const paramFields = [
+  "reasoningEffort",
+  "responseVerbosity",
+  "temperature",
+  "topP",
+  "maxTokens",
+  "seed",
+  "stop",
+] as const;
 export type ParamField = (typeof paramFields)[number];
 
 export const paramOrigins = ["conversation", "model", "global", "default"] as const;
@@ -16,6 +24,8 @@ export type Resolved<T> = {
 };
 
 export type ResolvedParams = {
+  reasoningEffort: Resolved<"low" | "medium" | "high">;
+  responseVerbosity: Resolved<"short" | "balanced" | "detailed">;
   temperature: Resolved<number>;
   topP: Resolved<number>;
   maxTokens: Resolved<number>;

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
+import mermaidScriptUrl from "mermaid/dist/mermaid.min.js?url";
 import { Spinner } from "../Spinner";
 import { useResolvedThemeMode } from "../../lib/theme";
 import { CodeBlock } from "./CodeBlock";
@@ -10,10 +11,72 @@ type MermaidState =
   | { status: "ready"; svg: string }
   | { status: "error" };
 
-let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+type MermaidRuntime = typeof import("mermaid").default;
+
+let mermaidPromise: Promise<MermaidRuntime> | null = null;
+
+function readMermaidGlobal() {
+  return (window as Window & { mermaid?: MermaidRuntime }).mermaid ?? null;
+}
+
+function loadMermaidScript() {
+  return new Promise<void>((resolve, reject) => {
+    const existing = readMermaidGlobal();
+
+    if (existing) {
+      resolve();
+      return;
+    }
+
+    const id = "foundryui-mermaid-runtime";
+    const current = document.getElementById(id) as HTMLScriptElement | null;
+
+    const onLoad = () => {
+      resolve();
+    };
+
+    const onError = () => {
+      reject(new Error("mermaid runtime failed to load"));
+    };
+
+    if (current) {
+      current.addEventListener("load", onLoad, { once: true });
+      current.addEventListener("error", onError, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+
+    script.id = id;
+    script.async = true;
+    script.src = mermaidScriptUrl;
+    script.addEventListener("load", onLoad, { once: true });
+    script.addEventListener("error", onError, { once: true });
+    document.head.append(script);
+  });
+}
 
 function loadMermaid() {
-  mermaidPromise ??= import("mermaid").then((module) => module.default);
+  mermaidPromise ??= (async () => {
+    const existing = readMermaidGlobal();
+
+    if (existing) {
+      return existing;
+    }
+
+    await loadMermaidScript();
+
+    const loaded = readMermaidGlobal();
+
+    if (!loaded) {
+      throw new Error("mermaid runtime unavailable");
+    }
+
+    return loaded;
+  })().catch((error) => {
+    mermaidPromise = null;
+    throw error;
+  });
 
   return mermaidPromise;
 }

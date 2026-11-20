@@ -519,7 +519,7 @@ mod tests {
                 web_urls: vec!["http://127.0.0.1:54182".to_string()],
                 ..ServerStatus::default()
             }),
-            ..ServerState::default()
+            last_observed_at: None,
         };
 
         let snapshot = snapshot_from(&state);

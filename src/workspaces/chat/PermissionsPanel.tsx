@@ -6,7 +6,6 @@ import { projectControlFocus } from "./projectFocus";
 
 export function PermissionsPanel({ conversationId, onChanged }: { conversationId: number; onChanged: () => void }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [grants, setGrants] = useState<AuthorizationGrant[] | null>(null);
   const [projectBound, setProjectBound] = useState<boolean | null>(null);
   const [instructions, setInstructions] = useState<InstructionDiscovery | null>(null);
@@ -47,9 +46,8 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void refresh();
-  }, [open, refresh]);
+  }, [refresh]);
 
   async function revoke(grantId: number) {
     if (revoking !== null) return;
@@ -106,9 +104,7 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
     denied: t("permissions.statusDenied"),
   };
 
-  return <details className="mt-2" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className={`cursor-pointer ${projectControlFocus}`}>{t("permissions.title")}</summary>
-    {open ? <div className="mt-2 max-h-80 space-y-4 overflow-y-auto border-t border-line pt-3 text-[14px] [&_p]:max-w-[75ch]" aria-label={t("permissions.title")}>
+  return <div className="space-y-4 text-[14px] [&_p]:max-w-[75ch]">
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium">{t("permissions.grants")}</h2>
@@ -146,6 +142,5 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
         </ul>
       </div>
       {error || actionError ? <p role="alert">{t("permissions.error")} <button type="button" className={button} onClick={() => { setActionError(false); void refresh(); }}>{t("permissions.retry")}</button></p> : null}
-    </div> : null}
-  </details>;
+  </div>;
 }

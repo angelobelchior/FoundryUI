@@ -22,8 +22,6 @@
     "moveHint": "O histórico e os anexos mantêm informações do contexto anterior. Permissões lembradas e aprovações de instruções serão invalidadas. Confirme o destino no diálogo nativo.",
     "renameHint": "Só o nome do projeto no aplicativo será alterado. A pasta não será renomeada.",
     "folder": "Pasta do projeto",
-    "review": "Revisar alterações",
-    "automatic": "Aplicar alterações automaticamente",
     "duplicate": "Esta pasta já pertence a um projeto. O projeto existente foi aberto.",
     "emptyTitle": "Nenhum projeto ainda",
     "emptyBody": "Escolha uma pasta para organizar conversas em um projeto.",
@@ -49,6 +47,14 @@
     "embeddings": "Embeddings",
     "settings": "Ajustes",
     "shortcuts": "Atalhos de teclado"
+  },
+  "app": {
+    "cliBanner": {
+      "title": "A CLI do Foundry Local precisa de atenção",
+      "body": "O FoundryUI não conseguiu validar a CLI. Abra a configuração inicial para revisar as instruções de instalação.",
+      "open": "Abrir configuração",
+      "dismiss": "Dispensar"
+    }
   },
   "common": {
     "close": "Fechar",
@@ -98,6 +104,10 @@
     "conversationEmptyTitle": "Nenhuma mensagem ainda",
     "conversationEmptyBody": "Escreva a primeira mensagem para começar a conversa.",
     "model": "Modelo",
+    "variant": "Variante",
+    "variantAuto": "Automática",
+    "variantAutoHint": "Usar a variante padrão do modelo.",
+    "variantNotInCatalog": "Não encontrada no catálogo",
     "notLoaded": "Não carregado",
     "modelChanged": "Modelo alterado para {{model}}",
     "rename": "Renomear conversa",
@@ -124,6 +134,7 @@
     "composerPlaceholder": "Mensagem para {{model}}",
     "composerPlaceholderEmpty": "Escreva uma mensagem",
     "streamingPlaceholder": "Aguardando a resposta…",
+    "processingReply": "Processando resposta…",
     "send": "Enviar",
     "stop": "Parar",
     "stopping": "Parando…",
@@ -131,6 +142,7 @@
     "hint": "Enter para enviar · Shift+Enter para nova linha",
     "reasoning": "Raciocínio",
     "usage": "{{prompt}} entrada · {{completion}} saída",
+    "tokensTooltipTitle": "Uso de tokens",
     "tokensTooltip": "Enviados {{prompt}} · Recebidos {{completion}} · Total {{total}}",
     "loadOlder": "Carregar mensagens anteriores",
     "reconnect": "Reconectar",
@@ -247,6 +259,7 @@
     "familyOther": "Outros",
     "notDeclared": "Não declarado",
     "curated": "curado",
+    "curatedSourceTitle": "Metadados curados",
     "curatedSource": "Curado de {{source}}",
     "curatedUnknownSource": "o overlay de catálogo do FoundryUI",
     "yes": "Sim",
@@ -263,6 +276,19 @@
       "loaded": "Carregado",
       "cached": "Baixado",
       "notCached": "Não baixado"
+    },
+    "picker": {
+      "noModel": "Sem modelo",
+      "notSelected": "Nenhum modelo selecionado",
+      "notLoaded": "Modelo não carregado",
+      "useSection": "Usar",
+      "loadSection": "Carregar",
+      "downloadSection": "Baixar",
+      "load": "Carregar",
+      "download": "Baixar",
+      "downloading": "Baixando…",
+      "retryDownload": "Tentar de novo",
+      "empty": "Nenhum modelo disponível"
     },
     "filters": {
       "kind": "Tipo",
@@ -914,8 +940,14 @@
     },
     "onboarding": {
       "label": "Configuração inicial",
-      "help": "Percorra a lista novamente para instalar a CLI, iniciar o servidor ou baixar os modelos iniciais.",
-      "run": "Rodar onboarding novamente"
+      "help": "Reexecute a configuração técnica ou o tour de uso quando precisar.",
+      "technicalLabel": "Configuração técnica",
+      "technicalHelp": "Verifica CLI, servidor local e download dos modelos iniciais.",
+      "runTechnical": "Rodar configuração técnica",
+      "usageLabel": "Tour de uso",
+      "usageHelp": "Revisite o guia dos workspaces e fluxos principais.",
+      "runUsage": "Rodar tour de uso",
+      "refreshInstallGuidance": "Atualizar instruções de instalação"
     },
     "diagnostics": {
       "refresh": "Atualizar",
@@ -972,6 +1004,11 @@
     "title": "Configurar o FoundryUI",
     "subtitle": "Uma lista curta para colocar os modelos locais para rodar.",
     "skip": "Pular por enquanto",
+    "neverShow": "Não mostrar novamente",
+    "critical": {
+      "title": "Configuração da CLI necessária",
+      "subtitle": "O FoundryUI precisa da CLI do Foundry Local antes de continuar a configuração."
+    },
     "steps": {
       "cli": "Instale a CLI do Foundry Local",
       "server": "Inicie o servidor local",
@@ -981,14 +1018,17 @@
     "cli": {
       "checking": "Procurando a CLI do Foundry Local…",
       "presentTitle": "CLI do Foundry Local {{version}} pronta",
-      "missingBody": "O FoundryUI conversa com a CLI oficial e nunca a instala nem a empacota. Instale com Homebrew ou com o instalador oficial e verifique de novo.",
-      "outdatedBody": "Atualize a CLI com Homebrew ou com o instalador oficial e verifique de novo.",
+      "missingBody": "O FoundryUI conversa com a CLI oficial e nunca a instala nem a empacota. Instale com o comando do seu sistema operacional, com o instalador oficial ou com a documentação e verifique de novo.",
+      "outdatedBody": "Atualize a CLI com o comando do seu sistema operacional, com o instalador oficial ou com a documentação e verifique de novo.",
       "copy": "Copiar",
       "copied": "Comando copiado.",
       "copyFailed": "Não foi possível copiar o comando.",
       "installer": "Instalador oficial",
+      "docs": "Documentação",
+      "noCommandForPlatform": "Ainda não há comando de pacote configurado para este sistema operacional.",
       "verify": "Verificar novamente",
-      "continue": "Continuar"
+      "continue": "Continuar",
+      "finish": "Concluir"
     },
     "server": {
       "starting": "Iniciando o servidor local…",
@@ -1001,17 +1041,121 @@
     "models": {
       "body": "O download é opcional. Estes modelos pequenos cobrem chat, transcrição e embeddings; você pode adicionar outros depois em Modelos.",
       "download": "Baixar",
-      "downloading": "Baixando {{percent}}%",
+      "downloading": "Baixando…",
       "downloaded": "Baixado",
       "notDownloaded": "Não baixado",
       "cancel": "Cancelar",
       "retry": "Tentar de novo",
       "continue": "Continuar",
+      "continueUsage": "Continuar para o tour de uso",
       "downloadedCount_one": "{{count}} baixado",
       "downloadedCount_other": "{{count}} baixados"
     },
     "ready": {
-      "body": "Tudo pronto. Escolha um workspace para começar."
+      "body": "Tudo pronto. Escolha um workspace para começar.",
+      "finishTechnical": "Ficar no workspace atual"
+    },
+    "usage": {
+      "title": "Conheça o FoundryUI",
+      "subtitle": "Um guia rápido dos fluxos principais.",
+      "steps": {
+        "workspaces": "Mapa dos workspaces",
+        "chat": "Fundamentos do chat",
+        "speech": "Voz",
+        "embeddings": "Embeddings",
+        "models": "Gerenciar modelos",
+        "settings": "Ajustes e diagnósticos"
+      },
+      "workspaces": {
+        "body": "A barra lateral é o mapa do FoundryUI: por ela você navega entre Chat, Voz, Embeddings, Modelos e Ajustes."
+      },
+      "chat": {
+        "body": "Escolha o modelo adequado e comece a conversar.",
+        "requirement": "Requer: modelo Chat ou Multimodal carregado",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 0.6B",
+            "Phi-3 Mini",
+            "Llama 3.2 3B Instruct"
+          ],
+          "standard": [
+            "Qwen2.5 7B Instruct",
+            "Llama 3.1 8B Instruct",
+            "Gemma 3 4B Instruct"
+          ],
+          "pro": [
+            "Qwen2.5 14B Instruct",
+            "Mistral Small 24B Instruct",
+            "Llama 3.1 8B Instruct"
+          ]
+        }
+      },
+      "speech": {
+        "body": "Na Voz, transcreva áudio do microfone ou de arquivos com um modelo de speech carregado.",
+        "requirement": "Requer: modelo Speech carregado",
+        "suggestedModels": {
+          "lite": [
+            "Whisper Tiny",
+            "Whisper Base"
+          ],
+          "standard": [
+            "Whisper Small",
+            "Whisper Large v3 Turbo"
+          ],
+          "pro": [
+            "Whisper Medium",
+            "Whisper Large v3"
+          ]
+        }
+      },
+      "embeddings": {
+        "body": "Em Embeddings, carregue arquivos, vetorize o conteúdo e faça busca semântica com um modelo de embedding ativo.",
+        "requirement": "Requer: modelo Embedding carregado",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 Embedding 0.6B",
+            "nomic-embed-text"
+          ],
+          "standard": [
+            "bge-m3",
+            "nomic-embed-text",
+            "multilingual-e5-large"
+          ],
+          "pro": [
+            "bge-m3",
+            "multilingual-e5-large",
+            "gte-large"
+          ]
+        }
+      },
+      "models": {
+        "body": "Em Modelos, escolha, baixe e carregue o modelo mais adequado para cada tarefa.",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 0.6B",
+            "Whisper Tiny",
+            "Qwen3 Embedding 0.6B"
+          ],
+          "standard": [
+            "Qwen2.5 7B Instruct",
+            "Whisper Small",
+            "bge-m3"
+          ],
+          "pro": [
+            "Qwen2.5 14B Instruct",
+            "Whisper Large v3",
+            "multilingual-e5-large"
+          ]
+        }
+      },
+      "settings": {
+        "body": "Em Ajustes, personalize o app, revise diagnósticos e rode o onboarding novamente quando precisar."
+      },
+      "currentTitle": "O que fazer agora",
+      "suggestedModelsTitle": "Sugestões para baixar",
+      "back": "Voltar",
+      "next": "Próximo",
+      "finish": "Concluir tour"
     }
   },
   "params": {
@@ -1021,14 +1165,40 @@
     "applying": "Aplicando…",
     "reset": "Voltar ao valor herdado",
     "inherited": "Herdado",
+    "fieldInfo": "Sobre {{field}}",
+    "infoTitle": "Como funciona",
+    "notSupportedForModel": "Este modelo não expõe configurações de geração.",
     "stopHint": "Por vírgula",
     "cascade": "Herdado da conversa, depois do modelo, depois dos padrões globais.",
     "fields": {
+      "reasoningEffort": "Raciocínio",
+      "responseVerbosity": "Estilo da resposta",
       "temperature": "Temperatura",
       "topP": "Top P",
       "maxTokens": "Máximo de tokens",
       "seed": "Semente",
       "stop": "Sequências de parada"
+    },
+    "options": {
+      "reasoningEffort": {
+        "low": "Baixo",
+        "medium": "Médio",
+        "high": "Alto"
+      },
+      "responseVerbosity": {
+        "short": "Curta",
+        "balanced": "Equilibrada",
+        "detailed": "Detalhada"
+      }
+    },
+    "help": {
+      "reasoningEffort": "Controla quanto raciocínio interno o modelo usa antes de responder. Valores maiores podem melhorar respostas complexas, mas podem aumentar a latência.",
+      "responseVerbosity": "Controla o nível de detalhe da resposta final. Curta é mais objetiva, Equilibrada é o padrão e Detalhada traz mais explicações.",
+      "temperature": "Controla a aleatoriedade. Valores baixos são mais determinísticos; valores altos trazem respostas mais criativas e variadas.",
+      "topP": "Limita a amostragem ao menor conjunto de probabilidades que atinge este valor. Valores menores deixam a saída mais focada.",
+      "maxTokens": "Quantidade máxima de tokens que o modelo pode gerar na resposta.",
+      "seed": "Valor opcional para obter respostas mais reproduzíveis quando o modelo suporta amostragem determinística.",
+      "stop": "Uma ou mais sequências que interrompem a geração assim que aparecem na saída. Separe por vírgula."
     },
     "origin": {
       "conversation": "Conversa",

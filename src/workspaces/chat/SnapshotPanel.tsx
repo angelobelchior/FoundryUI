@@ -5,7 +5,6 @@ import { projectControlFocus } from "./projectFocus";
 
 export function SnapshotPanel({ conversationId }: { conversationId: number }) {
   const { t, i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [attached, setAttached] = useState<ConversationSnapshot[] | null>(null);
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<SnapshotCandidate[]>([]);
@@ -54,12 +53,11 @@ export function SnapshotPanel({ conversationId }: { conversationId: number }) {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void refresh();
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     searchTimer.current = window.setTimeout(() => void search(query), 200);
     return () => { if (searchTimer.current !== null) window.clearTimeout(searchTimer.current); };
-  }, [open, refresh, search, query]);
+  }, [refresh, search, query]);
 
   async function capture(sourceId: number) {
     if (attaching !== null) return;
@@ -94,9 +92,7 @@ export function SnapshotPanel({ conversationId }: { conversationId: number }) {
   const button = `rounded-md border border-line px-2 py-1 text-[13px] text-primary hover:bg-hover disabled:opacity-50 ${projectControlFocus}`;
   const input = `rounded-md border border-line bg-canvas px-2 py-1 text-primary focus-visible:outline-2 focus-visible:outline-offset-2 ${projectControlFocus}`;
 
-  return <details className="mt-2" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className={`cursor-pointer ${projectControlFocus}`}>{t("snapshots.title")}</summary>
-    {open ? <div className="mt-2 max-h-96 space-y-4 overflow-y-auto border-t border-line pt-3 text-[14px] [&_p]:max-w-[75ch]" aria-label={t("snapshots.title")}>
+  return <div className="space-y-4 text-[14px] [&_p]:max-w-[75ch]">
       <div>
         <label className="flex items-center gap-2">
           <span>{t("snapshots.search")}</span>
@@ -148,6 +144,5 @@ export function SnapshotPanel({ conversationId }: { conversationId: number }) {
         </ul>
       </div>
       {error || actionError ? <p role="alert">{t("snapshots.error")} <button type="button" className={button} onClick={() => { setActionError(false); void refresh(); }}>{t("snapshots.retry")}</button></p> : null}
-    </div> : null}
-  </details>;
+  </div>;
 }

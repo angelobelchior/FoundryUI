@@ -43,10 +43,10 @@ test("onboarding fecha com Escape", async ({ page }) => {
 
   await page.goto("/");
 
-  const onboardingTitle = page.getByRole("heading", { name: "Set up FoundryUI" });
+  const onboardingStep = page.getByText("Workspace map");
 
-  await expect(onboardingTitle).toBeVisible();
+  await expect(onboardingStep).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(onboardingTitle).toHaveCount(0);
+  await expect(onboardingStep).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
 });

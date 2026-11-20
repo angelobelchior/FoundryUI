@@ -1,5 +1,5 @@
 export const accessEnglish = {
-  title: "Reading and network", reading: "Global file reading", allow: "Allow new file reads in all conversations",
+  title: "Reading and network", tab: "Reading and network", reading: "Global file reading", allow: "Allow new file reads in all conversations",
   scope: "When enabled, authorized roots include sensitive, hidden and Git-ignored files by default. This is a global preference, not a project override.",
   limits: "Binary files, large files and unsupported formats are still limited or omitted. Enabling reading does not include every file in every answer.",
   retained: "Restricting new reads does not erase content already present in messages or attached copies.",
@@ -11,7 +11,7 @@ export const accessEnglish = {
   states: { requested: "Requested; no access confirmed", blocked: "Blocked or denied", attempted: "Attempted; outcome not confirmed", redirected: "Redirect refused; target not accessed", completed: "Completed", failed: "Failed", cancelled: "Cancelled; completion not confirmed" },
 };
 export const accessPortuguese: typeof accessEnglish = {
-  title: "Leitura e rede", reading: "Leitura global de arquivos", allow: "Permitir novas leituras em todas as conversas",
+  title: "Leitura e rede", tab: "Leitura e rede", reading: "Leitura global de arquivos", allow: "Permitir novas leituras em todas as conversas",
   scope: "Quando habilitada, a leitura nas raízes autorizadas inclui arquivos sensíveis, ocultos e ignorados pelo Git. A preferência é global, sem substituição por projeto.",
   limits: "Binários, arquivos grandes e formatos não suportados continuam limitados ou omitidos. Permitir leitura não inclui todos os arquivos em cada resposta.",
   retained: "Restringir novas leituras não apaga conteúdo já presente em mensagens ou cópias anexadas.",
@@ -23,7 +23,7 @@ export const accessPortuguese: typeof accessEnglish = {
   states: { requested: "Solicitado; acesso não confirmado", blocked: "Bloqueado ou negado", attempted: "Tentativa; resultado não confirmado", redirected: "Redirecionamento recusado; destino não acessado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado; conclusão não confirmada" },
 };
 export const accessSpanish: typeof accessEnglish = {
-  title: "Lectura y red", reading: "Lectura global de archivos", allow: "Permitir nuevas lecturas en todas las conversaciones",
+  title: "Lectura y red", tab: "Lectura y red", reading: "Lectura global de archivos", allow: "Permitir nuevas lecturas en todas las conversaciones",
   scope: "Cuando está habilitada, la lectura en raíces autorizadas incluye archivos sensibles, ocultos e ignorados por Git. La preferencia es global, sin reemplazo por proyecto.",
   limits: "Los binarios, archivos grandes y formatos no compatibles siguen limitados u omitidos. Permitir lectura no incluye todos los archivos en cada respuesta.",
   retained: "Restringir nuevas lecturas no borra el contenido ya presente en mensajes o copias adjuntas.",

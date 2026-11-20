@@ -5,16 +5,20 @@ import { ParamsEditor } from "../../components/ParamsEditor";
 import { Spinner } from "../../components/Spinner";
 import { useParamsLayer } from "../../components/useParamsLayer";
 import { cx } from "../../lib/cx";
+import { layerFor, paramFields, type ParamField } from "../../lib/params";
+import type { ChatParams } from "../../lib/chat";
 
 type ParamsPopoverProps = {
   conversationId: number;
   modelAlias: string;
+  supportedFields?: readonly ParamField[] | undefined;
   disabled?: boolean;
 };
 
 export function ParamsPopover({
   conversationId,
   modelAlias,
+  supportedFields,
   disabled = false,
 }: ParamsPopoverProps) {
   const { t } = useTranslation();
@@ -24,8 +28,11 @@ export function ParamsPopover({
     scope: "conversation",
     conversationId,
     modelAlias,
-    enabled: open,
+    enabled: true,
   });
+  const layer = snapshot ? layerFor(snapshot, "conversation") : null;
+  const visibleFields = supportedFields ?? paramFields;
+  const hasVisibleOverride = Boolean(layer && visibleFields.some((field) => hasOverride(layer, field)));
 
   useEffect(() => {
     if (!open) {
@@ -64,19 +71,22 @@ export function ParamsPopover({
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cx(
-          "inline-flex h-7 w-7 items-center justify-center rounded-md text-secondary transition-colors",
-          "hover:bg-hover hover:text-primary active:bg-active",
+          "inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-[7px] border px-2 text-[11.5px] transition-colors",
+          open || hasVisibleOverride
+            ? "border-accent/45 bg-accent/10 text-primary hover:border-accent/70"
+            : "border-line text-secondary hover:border-line-strong hover:text-primary",
           "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-secondary",
-          open && "bg-active text-primary",
         )}
       >
-        <SlidersIcon size={15} />
+        <SlidersIcon size={14} />
+        <span className="truncate font-medium">{t("params.title")}</span>
+        {hasVisibleOverride ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
       </button>
       {open ? (
         <div
           role="dialog"
           aria-label={t("params.title")}
-          className="pop-in absolute right-0 top-[calc(100%+4px)] z-30 w-[352px] rounded-lg border border-line bg-elevated p-3 shadow-[var(--shadow-popover)]"
+          className="pop-in absolute bottom-[calc(100%+4px)] right-0 z-30 w-[352px] rounded-lg border border-line bg-elevated p-3 shadow-[var(--shadow-popover)]"
         >
           <div className="mb-2 flex items-baseline justify-between gap-3">
             <p className="text-[12px] font-semibold text-primary">{t("params.title")}</p>
@@ -86,6 +96,7 @@ export function ParamsPopover({
             <ParamsEditor
               snapshot={snapshot}
               scope="conversation"
+              fields={visibleFields}
               busy={busy}
               onSave={(params) => void apply(params)}
             />
@@ -98,4 +109,20 @@ export function ParamsPopover({
       ) : null}
     </div>
   );
+}
+
+function hasOverride(params: ChatParams, field: ParamField): boolean {
+  if (field === "stop") {
+    return Boolean(params.stop?.length);
+  }
+
+  if (field === "reasoningEffort") {
+    return params.reasoningEffort != null;
+  }
+
+  if (field === "responseVerbosity") {
+    return params.responseVerbosity != null;
+  }
+
+  return params[field] != null;
 }

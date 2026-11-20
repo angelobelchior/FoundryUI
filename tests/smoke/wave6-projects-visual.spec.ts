@@ -105,6 +105,9 @@ for (const [width, height] of [[1440, 900], [960, 640], [390, 844]]) {
     await expect(initialName).toBeEditable();
     await expect(initialName).toBeFocused();
     await expect(createDialog.getByLabel("Project folder")).toHaveText(newSelection.folderPath);
+    await expect.poll(() =>
+      initialName.evaluate((input) => parseFloat(getComputedStyle(input).outlineOffset)),
+    ).toBeGreaterThanOrEqual(2);
     const initialOutline = await initialName.evaluate((input) => {
       const style = getComputedStyle(input);
       return { style: style.outlineStyle, width: parseFloat(style.outlineWidth), offset: parseFloat(style.outlineOffset) };

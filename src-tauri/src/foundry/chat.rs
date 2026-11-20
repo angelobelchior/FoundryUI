@@ -37,6 +37,50 @@ pub struct ChatParams {
     pub seed: Option<i64>,
     #[serde(default)]
     pub stop: Option<Vec<String>>,
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default)]
+    pub response_verbosity: Option<ResponseVerbosity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResponseVerbosity {
+    Short,
+    Balanced,
+    Detailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GenerationParam {
+    ReasoningEffort,
+    ResponseVerbosity,
+    Temperature,
+    TopP,
+    MaxTokens,
+    Seed,
+    Stop,
+}
+
+impl GenerationParam {
+    pub const ALL: [GenerationParam; 7] = [
+        GenerationParam::ReasoningEffort,
+        GenerationParam::ResponseVerbosity,
+        GenerationParam::Temperature,
+        GenerationParam::TopP,
+        GenerationParam::MaxTokens,
+        GenerationParam::Seed,
+        GenerationParam::Stop,
+    ];
 }
 
 impl ChatParams {
@@ -87,6 +131,8 @@ impl ChatParams {
             && self.frequency_penalty.is_none()
             && self.seed.is_none()
             && self.stop.as_ref().is_none_or(|stop| stop.is_empty())
+            && self.reasoning_effort.is_none()
+            && self.response_verbosity.is_none()
     }
 
     pub fn apply(&self, payload: &mut Value) {
@@ -120,6 +166,36 @@ impl ChatParams {
 
         if let Some(value) = &self.stop {
             fields.insert("stop".to_string(), json!(value));
+        }
+    }
+
+    pub fn filter_supported(&self, supported: &[GenerationParam]) -> Self {
+        let supports = |field| supported.contains(&field);
+
+        Self {
+            temperature: supports(GenerationParam::Temperature)
+                .then_some(self.temperature)
+                .flatten(),
+            top_p: supports(GenerationParam::TopP)
+                .then_some(self.top_p)
+                .flatten(),
+            max_tokens: supports(GenerationParam::MaxTokens)
+                .then_some(self.max_tokens)
+                .flatten(),
+            presence_penalty: self.presence_penalty,
+            frequency_penalty: self.frequency_penalty,
+            seed: supports(GenerationParam::Seed)
+                .then_some(self.seed)
+                .flatten(),
+            stop: supports(GenerationParam::Stop)
+                .then_some(self.stop.clone())
+                .flatten(),
+            reasoning_effort: supports(GenerationParam::ReasoningEffort)
+                .then_some(self.reasoning_effort)
+                .flatten(),
+            response_verbosity: supports(GenerationParam::ResponseVerbosity)
+                .then_some(self.response_verbosity)
+                .flatten(),
         }
     }
 }
@@ -300,6 +376,7 @@ pub struct GenerationContext {
     pub user_message: ChatMessage,
     pub assistant_message: ChatMessage,
     pub params: Option<ChatParams>,
+    pub supports_reasoning: bool,
     pub timeouts: StreamTimeouts,
     pub cancellation: watch::Receiver<bool>,
     pub _guard: GenerationGuard,
@@ -498,10 +575,16 @@ async fn stream_completion<S: StreamSink>(
             })
         })
         .collect::<FoundryResult<Vec<Value>>>();
-    let messages = match messages {
+    let mut messages = match messages {
         Ok(messages) => messages,
         Err(error) => return cancelled_or_failed(&mut cancellation, error, &buffer, usage),
     };
+
+    if let Some(params) = &context.params
+        && let Some(instruction) = behavior_instruction(params, context.supports_reasoning)
+    {
+        messages.insert(0, json!({"role": "system", "content": instruction}));
+    }
 
     let messages = match super::agent_runtime::with_approved_instructions(
         &context.database.agent_store(),
@@ -563,6 +646,7 @@ async fn stream_completion<S: StreamSink>(
 
     if let Some(params) = &context.params {
         params.apply(&mut payload);
+        apply_native_behavior_controls(&mut payload, params, context.supports_reasoning);
     }
 
     let request = context.endpoint.post_json_stream(
@@ -829,6 +913,70 @@ fn report_usage<S: StreamSink>(
     });
 }
 
+fn apply_native_behavior_controls(
+    payload: &mut Value,
+    params: &ChatParams,
+    supports_reasoning: bool,
+) {
+    if !supports_reasoning {
+        return;
+    }
+
+    let Some(reasoning_effort) = params.reasoning_effort else {
+        return;
+    };
+
+    let Some(fields) = payload.as_object_mut() else {
+        return;
+    };
+
+    fields.insert("reasoning_effort".to_string(), json!(reasoning_effort));
+}
+
+fn behavior_instruction(params: &ChatParams, supports_reasoning: bool) -> Option<String> {
+    let mut instructions = Vec::new();
+
+    if !supports_reasoning {
+        if let Some(reasoning_effort) = params.reasoning_effort {
+            let text = match reasoning_effort {
+                ReasoningEffort::Low => {
+                    "Use minimal internal reasoning before answering and favor direct outputs."
+                }
+                ReasoningEffort::Medium => {
+                    "Use a moderate amount of internal reasoning before answering."
+                }
+                ReasoningEffort::High => {
+                    "Use deeper internal reasoning before answering and validate key assumptions."
+                }
+            };
+
+            instructions.push(text.to_string());
+        }
+    }
+
+    if let Some(response_verbosity) = params.response_verbosity {
+        let text = match response_verbosity {
+            ResponseVerbosity::Short => {
+                "Keep the final response concise and direct, with short paragraphs and minimal bullets."
+            }
+            ResponseVerbosity::Balanced => {
+                "Keep the final response balanced: clear and complete without excessive detail."
+            }
+            ResponseVerbosity::Detailed => {
+                "Provide a detailed final response with clear structure and explicit tradeoffs when relevant."
+            }
+        };
+
+        instructions.push(text.to_string());
+    }
+
+    if instructions.is_empty() {
+        None
+    } else {
+        Some(instructions.join(" "))
+    }
+}
+
 fn flush(database: &Database, message_id: i64, buffer: &mut StreamBuffer) {
     if database
         .update_streaming(message_id, buffer.content(), buffer.reasoning())
@@ -1071,10 +1219,9 @@ mod tests {
             temperature: Some(0.7),
             top_p: Some(0.9),
             max_tokens: Some(256),
-            presence_penalty: None,
-            frequency_penalty: None,
             seed: Some(42),
             stop: Some(vec!["END".to_string()]),
+            ..ChatParams::default()
         }
         .validate()
         .expect("valid");
@@ -1116,6 +1263,59 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn behavior_instruction_is_built_when_needed() {
+        let with_fallback = behavior_instruction(
+            &ChatParams {
+                reasoning_effort: Some(ReasoningEffort::High),
+                response_verbosity: Some(ResponseVerbosity::Short),
+                ..ChatParams::default()
+            },
+            false,
+        )
+        .expect("instruction");
+
+        assert!(with_fallback.contains("deeper internal reasoning"));
+        assert!(with_fallback.contains("concise and direct"));
+
+        let without_reasoning_fallback = behavior_instruction(
+            &ChatParams {
+                reasoning_effort: Some(ReasoningEffort::Low),
+                ..ChatParams::default()
+            },
+            true,
+        );
+
+        assert!(without_reasoning_fallback.is_none());
+    }
+
+    #[test]
+    fn native_reasoning_effort_is_added_only_when_supported() {
+        let mut payload = json!({"model": "qwen3-0.6b"});
+        apply_native_behavior_controls(
+            &mut payload,
+            &ChatParams {
+                reasoning_effort: Some(ReasoningEffort::Medium),
+                ..ChatParams::default()
+            },
+            true,
+        );
+
+        assert_eq!(payload["reasoning_effort"], json!("medium"));
+
+        let mut unsupported = json!({"model": "qwen3-0.6b"});
+        apply_native_behavior_controls(
+            &mut unsupported,
+            &ChatParams {
+                reasoning_effort: Some(ReasoningEffort::High),
+                ..ChatParams::default()
+            },
+            false,
+        );
+
+        assert!(unsupported.get("reasoning_effort").is_none());
     }
 
     #[test]
@@ -1219,6 +1419,7 @@ mod tests {
                     temperature: Some(0.2),
                     ..ChatParams::default()
                 }),
+                supports_reasoning: false,
                 timeouts: StreamTimeouts::from_seconds(20, 20),
                 cancellation,
                 _guard: guard,
@@ -1642,6 +1843,7 @@ mod tests {
                 max_tokens: Some(64),
                 ..ChatParams::default()
             }),
+            supports_reasoning: false,
             timeouts: StreamTimeouts::from_seconds(60, 60),
             cancellation,
             _guard: guard,

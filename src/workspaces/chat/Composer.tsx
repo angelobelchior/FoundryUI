@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CloseIcon, MicIcon, PaperclipIcon, SendIcon, StopIcon } from "../../components/Icon";
 import { Modal } from "../../components/Modal";
@@ -40,6 +40,7 @@ type ComposerProps = {
   onStop: () => void;
   onAttach: (files: File[]) => void;
   onRemoveAttachment: (token: string) => void;
+  controls?: ReactNode;
 };
 
 export function Composer({
@@ -56,6 +57,7 @@ export function Composer({
   onStop,
   onAttach,
   onRemoveAttachment,
+  controls,
 }: ComposerProps) {
   const { t } = useTranslation();
   const { push } = useToast();
@@ -394,6 +396,11 @@ export function Composer({
                   </button>
                 </div>
               ))}
+            </div>
+          ) : null}
+          {controls ? (
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-line/80 bg-subtle/35 px-2 pt-2 pb-1.5">
+              {controls}
             </div>
           ) : null}
           <textarea

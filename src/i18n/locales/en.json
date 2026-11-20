@@ -22,8 +22,6 @@
     "moveHint": "History and attachments retain information from the previous context. Remembered permissions and instruction approvals will be invalidated. Confirm the destination in the native dialog.",
     "renameHint": "Only the project name in this app changes. The folder is not renamed.",
     "folder": "Project folder",
-    "review": "Review changes",
-    "automatic": "Apply changes automatically",
     "duplicate": "This folder already belongs to a project. Opened the existing project.",
     "emptyTitle": "No projects yet",
     "emptyBody": "Choose a folder to organize conversations in a project.",
@@ -49,6 +47,14 @@
     "embeddings": "Embeddings",
     "settings": "Settings",
     "shortcuts": "Keyboard shortcuts"
+  },
+  "app": {
+    "cliBanner": {
+      "title": "Foundry Local CLI needs attention",
+      "body": "FoundryUI could not validate the CLI. Open initial setup to check installation instructions.",
+      "open": "Open setup",
+      "dismiss": "Dismiss"
+    }
   },
   "common": {
     "close": "Close",
@@ -98,6 +104,10 @@
     "conversationEmptyTitle": "No messages yet",
     "conversationEmptyBody": "Write the first message to start the conversation.",
     "model": "Model",
+    "variant": "Variant",
+    "variantAuto": "Automatic",
+    "variantAutoHint": "Use the model default variant.",
+    "variantNotInCatalog": "Not found in catalog",
     "notLoaded": "Not loaded",
     "modelChanged": "Model changed to {{model}}",
     "rename": "Rename conversation",
@@ -124,6 +134,7 @@
     "composerPlaceholder": "Message {{model}}",
     "composerPlaceholderEmpty": "Write a message",
     "streamingPlaceholder": "Waiting for the reply…",
+    "processingReply": "Processing reply…",
     "send": "Send",
     "stop": "Stop",
     "stopping": "Stopping…",
@@ -131,6 +142,7 @@
     "hint": "Enter to send · Shift+Enter for a new line",
     "reasoning": "Thinking",
     "usage": "{{prompt}} in · {{completion}} out",
+    "tokensTooltipTitle": "Token usage",
     "tokensTooltip": "Sent {{prompt}} · Received {{completion}} · Total {{total}}",
     "loadOlder": "Load older messages",
     "reconnect": "Reconnect",
@@ -247,6 +259,7 @@
     "familyOther": "Other",
     "notDeclared": "Not declared",
     "curated": "curated",
+    "curatedSourceTitle": "Curated metadata",
     "curatedSource": "Curated from {{source}}",
     "curatedUnknownSource": "the FoundryUI catalog overlay",
     "yes": "Yes",
@@ -263,6 +276,19 @@
       "loaded": "Loaded",
       "cached": "Downloaded",
       "notCached": "Not downloaded"
+    },
+    "picker": {
+      "noModel": "No model",
+      "notSelected": "No model selected",
+      "notLoaded": "Model not loaded",
+      "useSection": "Use",
+      "loadSection": "Load",
+      "downloadSection": "Download",
+      "load": "Load",
+      "download": "Download",
+      "downloading": "Downloading…",
+      "retryDownload": "Retry",
+      "empty": "No models available"
     },
     "filters": {
       "kind": "Type",
@@ -914,8 +940,14 @@
     },
     "onboarding": {
       "label": "Onboarding",
-      "help": "Walk through the checklist again to install the CLI, start the server or download the starter models.",
-      "run": "Run onboarding again"
+      "help": "Replay technical setup or the usage walkthrough whenever you need.",
+      "technicalLabel": "Technical setup",
+      "technicalHelp": "Check CLI installation, local server and starter model downloads.",
+      "runTechnical": "Run technical setup",
+      "usageLabel": "Usage walkthrough",
+      "usageHelp": "Replay the guided tour of workspaces and key flows.",
+      "runUsage": "Run usage walkthrough",
+      "refreshInstallGuidance": "Refresh install guidance"
     },
     "diagnostics": {
       "refresh": "Refresh",
@@ -972,6 +1004,11 @@
     "title": "Set up FoundryUI",
     "subtitle": "A short checklist to get local models running.",
     "skip": "Skip for now",
+    "neverShow": "Never show again",
+    "critical": {
+      "title": "CLI setup required",
+      "subtitle": "FoundryUI needs the Foundry Local CLI before you can continue with setup."
+    },
     "steps": {
       "cli": "Install the Foundry Local CLI",
       "server": "Start the local server",
@@ -981,14 +1018,17 @@
     "cli": {
       "checking": "Checking for the Foundry Local CLI…",
       "presentTitle": "Foundry Local CLI {{version}} is ready",
-      "missingBody": "FoundryUI talks to the official CLI and never installs or bundles it. Install it with Homebrew or the official installer, then check again.",
-      "outdatedBody": "Update the CLI with Homebrew or the official installer, then check again.",
+      "missingBody": "FoundryUI talks to the official CLI and never installs or bundles it. Install it with the command for your OS, the official installer, or the docs, then check again.",
+      "outdatedBody": "Update the CLI with the command for your OS, the official installer, or the docs, then check again.",
       "copy": "Copy",
       "copied": "Command copied.",
       "copyFailed": "Could not copy the command.",
       "installer": "Official installer",
+      "docs": "Documentation",
+      "noCommandForPlatform": "No package command is configured for this operating system yet.",
       "verify": "Check again",
-      "continue": "Continue"
+      "continue": "Continue",
+      "finish": "Finish"
     },
     "server": {
       "starting": "Starting the local server…",
@@ -1001,17 +1041,121 @@
     "models": {
       "body": "Downloads are optional. These small models cover chat, transcription and embeddings; you can add more later in Models.",
       "download": "Download",
-      "downloading": "Downloading {{percent}}%",
+      "downloading": "Downloading…",
       "downloaded": "Downloaded",
       "notDownloaded": "Not downloaded",
       "cancel": "Cancel",
       "retry": "Retry",
       "continue": "Continue",
+      "continueUsage": "Continue to usage walkthrough",
       "downloadedCount_one": "{{count}} downloaded",
       "downloadedCount_other": "{{count}} downloaded"
     },
     "ready": {
-      "body": "Everything is ready. Pick a workspace to begin."
+      "body": "Everything is ready. Pick a workspace to begin.",
+      "finishTechnical": "Stay in current workspace"
+    },
+    "usage": {
+      "title": "Learn FoundryUI",
+      "subtitle": "A guided walkthrough of the main workflows.",
+      "steps": {
+        "workspaces": "Workspace map",
+        "chat": "Chat basics",
+        "speech": "Speech",
+        "embeddings": "Embeddings",
+        "models": "Model management",
+        "settings": "Settings and diagnostics"
+      },
+      "workspaces": {
+        "body": "The left rail is your FoundryUI map: use it to navigate Chat, Speech, Embeddings, Models, and Settings."
+      },
+      "chat": {
+        "body": "Choose the right model and start chatting.",
+        "requirement": "Requires: Chat or Multimodal model loaded",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 0.6B",
+            "Phi-3 Mini",
+            "Llama 3.2 3B Instruct"
+          ],
+          "standard": [
+            "Qwen2.5 7B Instruct",
+            "Llama 3.1 8B Instruct",
+            "Gemma 3 4B Instruct"
+          ],
+          "pro": [
+            "Qwen2.5 14B Instruct",
+            "Mistral Small 24B Instruct",
+            "Llama 3.1 8B Instruct"
+          ]
+        }
+      },
+      "speech": {
+        "body": "In Speech, transcribe microphone input or uploaded audio files with a loaded speech model.",
+        "requirement": "Requires: Speech model loaded",
+        "suggestedModels": {
+          "lite": [
+            "Whisper Tiny",
+            "Whisper Base"
+          ],
+          "standard": [
+            "Whisper Small",
+            "Whisper Large v3 Turbo"
+          ],
+          "pro": [
+            "Whisper Medium",
+            "Whisper Large v3"
+          ]
+        }
+      },
+      "embeddings": {
+        "body": "In Embeddings, import files, vectorize content, and run semantic search with an active embedding model.",
+        "requirement": "Requires: Embedding model loaded",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 Embedding 0.6B",
+            "nomic-embed-text"
+          ],
+          "standard": [
+            "bge-m3",
+            "nomic-embed-text",
+            "multilingual-e5-large"
+          ],
+          "pro": [
+            "bge-m3",
+            "multilingual-e5-large",
+            "gte-large"
+          ]
+        }
+      },
+      "models": {
+        "body": "In Models, choose, download, and load the best model for each task.",
+        "suggestedModels": {
+          "lite": [
+            "Qwen3 0.6B",
+            "Whisper Tiny",
+            "Qwen3 Embedding 0.6B"
+          ],
+          "standard": [
+            "Qwen2.5 7B Instruct",
+            "Whisper Small",
+            "bge-m3"
+          ],
+          "pro": [
+            "Qwen2.5 14B Instruct",
+            "Whisper Large v3",
+            "multilingual-e5-large"
+          ]
+        }
+      },
+      "settings": {
+        "body": "In Settings, personalize the app, review diagnostics, and rerun onboarding whenever needed."
+      },
+      "currentTitle": "Do this now",
+      "suggestedModelsTitle": "Suggested downloads",
+      "back": "Back",
+      "next": "Next",
+      "finish": "Finish walkthrough"
     }
   },
   "params": {
@@ -1021,14 +1165,40 @@
     "applying": "Applying…",
     "reset": "Reset to the inherited value",
     "inherited": "Inherited",
+    "fieldInfo": "About {{field}}",
+    "infoTitle": "How it works",
+    "notSupportedForModel": "This model does not expose generation settings.",
     "stopHint": "Comma separated",
     "cascade": "Inherited from the conversation, then the model, then the global defaults.",
     "fields": {
+      "reasoningEffort": "Reasoning",
+      "responseVerbosity": "Response style",
       "temperature": "Temperature",
       "topP": "Top P",
       "maxTokens": "Max tokens",
       "seed": "Seed",
       "stop": "Stop sequences"
+    },
+    "options": {
+      "reasoningEffort": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "responseVerbosity": {
+        "short": "Short",
+        "balanced": "Balanced",
+        "detailed": "Detailed"
+      }
+    },
+    "help": {
+      "reasoningEffort": "Controls how much internal reasoning the model uses before answering. Higher values can improve complex answers, but may increase latency.",
+      "responseVerbosity": "Controls how detailed the final answer should be. Short is concise, Balanced is default, and Detailed adds more explanation.",
+      "temperature": "Controls randomness. Lower values are more deterministic; higher values are more creative and varied.",
+      "topP": "Limits token sampling to the smallest probability mass that reaches this value. Lower values make output more focused.",
+      "maxTokens": "Maximum number of tokens the model can generate in the reply.",
+      "seed": "Optional value for more repeatable generations when the model supports deterministic sampling.",
+      "stop": "One or more sequences that stop generation as soon as they appear in the output. Separate with commas."
     },
     "origin": {
       "conversation": "Conversation",

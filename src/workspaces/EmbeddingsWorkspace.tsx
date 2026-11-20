@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { ContextList } from "../components/ContextList";
 import { DetailPane } from "../components/DetailPane";
 import { EmptyState, ListEmpty } from "../components/EmptyState";
-import { ModelAccessPanel } from "../components/ModelAccessPanel";
 import {
   AlertIcon,
   ArchiveIcon,
@@ -61,10 +60,11 @@ import {
   type ModelJob,
 } from "../lib/foundry";
 import { useModelJobStream } from "../lib/useModelJobStream";
+import { FlowStepper, type FlowStep } from "../components/FlowStepper";
+import { ModelPicker } from "../components/ModelPicker";
 import { ConfirmDialog } from "./models/ConfirmDialog";
 import { errorLabel } from "./models/format";
 
-type FlowStep = 1 | 2 | 3 | 4;
 type FlowMode = "none" | "create" | "append";
 type ProcessingStage = "idle" | "extracting" | "saving" | "vectorizing";
 
@@ -210,14 +210,6 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
     [embeddingModels],
   );
   const loadedEmbeddingAliasSet = useMemo(() => new Set(loadedAliases), [loadedAliases]);
-  const loadedEmbeddingModels = useMemo(
-    () => cachedEmbeddingModels.filter((model) => loadedEmbeddingAliasSet.has(model.alias)),
-    [cachedEmbeddingModels, loadedEmbeddingAliasSet],
-  );
-  const loadableEmbeddingAliases = useMemo(
-    () => cachedEmbeddingModels.filter((model) => !loadedEmbeddingAliasSet.has(model.alias)).map((model) => model.alias),
-    [cachedEmbeddingModels, loadedEmbeddingAliasSet],
-  );
   const selectedModel = useMemo(
     () => embeddingModels.find((model) => model.alias === selected?.modelAlias),
     [embeddingModels, selected?.modelAlias],
@@ -945,13 +937,13 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
     }
   }
 
-  async function downloadSelectedModel() {
-    if (!selected || selectedModelJob?.status === "running") {
+  async function downloadEmbeddingModelAlias(alias: string) {
+    if (jobs[alias]?.status === "running") {
       return;
     }
 
     try {
-      await downloadModel(selected.modelAlias);
+      await downloadModel(alias);
       setBanner(null);
     } catch (error) {
       setBanner(toFoundryCommandError(error));
@@ -1112,8 +1104,6 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
       ]
     : [];
 
-  const missingDownloadedEmbeddingModels = cachedEmbeddingModels.length === 0;
-  const missingLoadedEmbeddingModels = loadedEmbeddingModels.length === 0 && cachedEmbeddingModels.length > 0;
   const panelClass = "min-w-0 rounded-[9px] border border-line bg-canvas p-3 sm:p-3.5";
   const sectionTitleClass = "text-[11px] font-semibold uppercase tracking-[0.055em] text-tertiary";
   const fieldClass =
@@ -1362,30 +1352,7 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
               </div>
             ) : null}
 
-            {missingDownloadedEmbeddingModels || missingLoadedEmbeddingModels ? (
-              <ModelAccessPanel
-                title={
-                  missingDownloadedEmbeddingModels
-                    ? t("common.noDownloadedModelTitle", { kind: t("models.kinds.embedding") })
-                    : t("common.noLoadedModelTitle", { kind: t("models.kinds.embedding") })
-                }
-                body={
-                  missingDownloadedEmbeddingModels
-                    ? t("common.noDownloadedModelBody", { kind: t("models.kinds.embedding") })
-                    : t("common.noLoadedModelBody", { kind: t("models.kinds.embedding") })
-                }
-                listTitle={t("common.downloadedModels")}
-                models={loadableEmbeddingAliases}
-                loadLabel={t("models.actions.load")}
-                loadingLabel={t("common.loading")}
-                openModelsLabel={t("common.openModels")}
-                loadingAlias={loadingModelAlias}
-                onLoad={(alias) => void loadEmbeddingModelAlias(alias)}
-                onOpenModels={() => onOpenModels?.()}
-              />
-            ) : null}
-
-            {selectedModelNeedsDownload || selectedModelNeedsLoad || selectedModelUnavailable ? (
+            {!isCreateFlow && (selectedModelNeedsDownload || selectedModelNeedsLoad || selectedModelUnavailable) ? (
               <section className="rounded-[9px] border border-line bg-subtle px-3 py-3" role="status" aria-live="polite">
                 <div className="flex items-start gap-2">
                   <AlertIcon size={14} className="mt-0.5 shrink-0 text-secondary" />
@@ -1421,7 +1388,7 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
                   {selectedModelNeedsDownload ? (
                     <button
                       type="button"
-                      onClick={() => void downloadSelectedModel()}
+                      onClick={() => void downloadEmbeddingModelAlias(selected.modelAlias)}
                       disabled={selectedModelJob?.status === "running"}
                       className={secondaryButtonClass}
                     >
@@ -1442,53 +1409,18 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
 
             {isCreateFlow ? (
               <>
-                <ol className="grid gap-2 sm:grid-cols-4" aria-label={t("embeddings.flow.stepsLabel")}>
-                  {[1, 2, 3, 4].map((value) => {
-                    const step = value as FlowStep;
-                    const active = activeFlowStep === step;
-                    const done = step < activeFlowStep;
-                    const locked = step > furthestStep;
-
-                    return (
-                      <li
-                        key={step}
-                        className={[
-                          "rounded-[8px] border",
-                          active
-                            ? "border-line-strong bg-elevated"
-                            : done
-                              ? "border-line bg-canvas"
-                              : "border-line bg-subtle",
-                        ].join(" ")}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => goToFlowStep(step)}
-                          disabled={locked}
-                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <span
-                            className={[
-                              "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10.5px] font-semibold",
-                              done || active ? "bg-accent text-accent-contrast" : "bg-subtle text-secondary",
-                            ].join(" ")}
-                          >
-                            {step}
-                          </span>
-                          <span className="text-[11.5px] text-secondary">
-                            {step === 1
-                              ? t("embeddings.flow.step1")
-                              : step === 2
-                                ? t("embeddings.flow.step2")
-                                : step === 3
-                                  ? t("embeddings.flow.step3")
-                                  : t("embeddings.flow.step4")}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
+                <FlowStepper
+                  label={t("embeddings.flow.stepsLabel")}
+                  steps={[
+                    { value: 1, label: t("embeddings.flow.step1") },
+                    { value: 2, label: t("embeddings.flow.step2") },
+                    { value: 3, label: t("embeddings.flow.step3") },
+                    { value: 4, label: t("embeddings.flow.step4") },
+                  ]}
+                  current={activeFlowStep}
+                  furthest={furthestStep}
+                  onSelect={goToFlowStep}
+                />
 
                 {activeFlowStep === 1 ? (
                   <section className={`${panelClass} ${flowTransition === "forward" ? "speech-flow-panel speech-flow-panel-forward" : "speech-flow-panel speech-flow-panel-backward"}`}>
@@ -1506,20 +1438,17 @@ export function EmbeddingsWorkspace({ onOpenModels, onLeaveGuardChange }: Embedd
                         />
                       </label>
 
-                      <label className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[11px] text-secondary">{t("embeddings.corpus.model")}</span>
-                        <select
-                          value={selected.modelAlias}
-                          onChange={(event) => void changeModel(event.target.value)}
-                          className={fieldClass}
-                        >
-                          {embeddingModels.map((model) => (
-                            <option key={model.alias} value={model.alias} disabled={!model.cached}>
-                              {model.alias}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <ModelPicker
+                        label={t("embeddings.corpus.model")}
+                        models={embeddingModels}
+                        selectedAlias={selected.modelAlias}
+                        loadingAlias={loadingModelAlias}
+                        jobs={jobs}
+                        onOpenModels={onOpenModels}
+                        onUse={(alias) => void changeModel(alias)}
+                        onLoad={(alias) => void loadEmbeddingModelAlias(alias)}
+                        onDownload={(alias) => void downloadEmbeddingModelAlias(alias)}
+                      />
 
                       <button
                         type="button"

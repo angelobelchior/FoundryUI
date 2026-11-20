@@ -6,7 +6,6 @@ import { projectControlFocus } from "./projectFocus";
 
 export function ReadNetworkPanel({ conversationId, onPreferenceChanged }: { conversationId: number; onPreferenceChanged: () => void }) {
   const { t, i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [preference, setPreference] = useState<boolean | null>(null);
   const [log, setLog] = useState<NetworkLogPage>({ entries: [], hasMore: false, nextBefore: null });
   const [loading, setLoading] = useState(true);
@@ -44,7 +43,6 @@ export function ReadNetworkPanel({ conversationId, onPreferenceChanged }: { conv
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     const subscription = listen("access-read-preference-changed", () => {
@@ -52,7 +50,7 @@ export function ReadNetworkPanel({ conversationId, onPreferenceChanged }: { conv
       preferenceChanged.current();
     }).catch(() => () => {});
     return () => { window.clearInterval(timer); void subscription.then((unlisten) => unlisten()); };
-  }, [open, refresh]);
+  }, [refresh]);
 
   async function changeReading(allowed: boolean) {
     if (saving) return;
@@ -99,9 +97,7 @@ export function ReadNetworkPanel({ conversationId, onPreferenceChanged }: { conv
   }
 
   const button = `rounded-md border border-line px-2 py-1 text-[13px] text-primary hover:bg-hover disabled:opacity-50 ${projectControlFocus}`;
-  return <details className="mt-2" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className={`cursor-pointer ${projectControlFocus}`}>{t("access.title")}</summary>
-    {open ? <div className="mt-2 max-h-80 space-y-3 overflow-y-auto border-t border-line pt-3 text-[14px] [&_p]:max-w-[75ch]" aria-label={t("access.title")}>
+  return <div className="space-y-3 text-[14px] [&_p]:max-w-[75ch]">
       <div>
         <h2 className="font-medium">{t("access.reading")}</h2>
         {loading ? <p role="status">{t("access.loading")}</p> : preference !== null ? <label className="mt-2 flex items-start gap-2">
@@ -144,6 +140,5 @@ export function ReadNetworkPanel({ conversationId, onPreferenceChanged }: { conv
         {copyStatus ? <p role="status">{t(`access.${copyStatus}`)}</p> : null}
       </div>
       {error || actionError ? <p role="alert">{t("access.error")} <button type="button" className={button} disabled={saving} onClick={() => { setActionError(false); void refresh(); }}>{t("access.retry")}</button></p> : null}
-    </div> : null}
-  </details>;
+  </div>;
 }

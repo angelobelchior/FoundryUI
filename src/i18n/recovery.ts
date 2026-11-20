@@ -1,5 +1,5 @@
 export const recoveryEnglish = {
-  title: "Applied changes and recovery",
+  title: "Applied changes and recovery", tab: "Recovery",
   empty: "No applied file changes recorded in this conversation.",
   loading: "Loading applied changes…",
   error: "Could not load applied changes. Retry.",
@@ -27,7 +27,7 @@ export const recoveryEnglish = {
 };
 
 export const recoveryPortuguese: typeof recoveryEnglish = {
-  title: "Alterações aplicadas e recuperação",
+  title: "Alterações aplicadas e recuperação", tab: "Recuperação",
   empty: "Nenhuma alteração de arquivo aplicada registrada nesta conversa.",
   loading: "Carregando alterações aplicadas…",
   error: "Não foi possível carregar as alterações aplicadas. Tente novamente.",
@@ -55,7 +55,7 @@ export const recoveryPortuguese: typeof recoveryEnglish = {
 };
 
 export const recoverySpanish: typeof recoveryEnglish = {
-  title: "Cambios aplicados y recuperación",
+  title: "Cambios aplicados y recuperación", tab: "Recuperación",
   empty: "No hay cambios de archivo aplicados registrados en esta conversación.",
   loading: "Cargando cambios aplicados…",
   error: "No se pudieron cargar los cambios aplicados. Reintenta.",

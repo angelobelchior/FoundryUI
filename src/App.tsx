@@ -1,7 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import i18n from "./i18n";
 import { languages, type Language } from "./i18n/resources";
-import { Onboarding } from "./components/Onboarding";
+import {
+  Onboarding,
+  type OnboardingEvent,
+  type OnboardingFlow,
+  type OnboardingSpotlightTarget,
+} from "./components/Onboarding";
 import { Rail } from "./components/Rail";
 import { ContextListTarget } from "./components/ContextList";
 import { ShortcutsModal } from "./components/ShortcutsModal";
@@ -9,6 +22,7 @@ import { ToastProvider } from "./components/Toast";
 import { ConfirmDialog } from "./workspaces/models/ConfirmDialog";
 import { cliDetect, serverSetPreferences, startServer, toFoundryCommandError, workspaceSnapshot } from "./lib/foundry";
 import { detectLanguage } from "./lib/language";
+import { fallbackInstallGuidance, loadInstallGuidance, type InstallGuidance } from "./lib/onboardingInstallGuidance";
 import {
   accents,
   applyAccent,
@@ -28,11 +42,22 @@ import {
 import { readStored, writeStored } from "./lib/storage";
 import { usePersistentState } from "./lib/usePersistentState";
 import { workspaces, type PrimaryWorkspace, type Workspace } from "./lib/workspaces";
-import { ChatWorkspace } from "./workspaces/ChatWorkspace";
-import { EmbeddingsWorkspace } from "./workspaces/EmbeddingsWorkspace";
-import { ModelsWorkspace } from "./workspaces/ModelsWorkspace";
 import { SettingsWorkspace } from "./workspaces/SettingsWorkspace";
-import { SpeechWorkspace } from "./workspaces/SpeechWorkspace";
+
+const ChatWorkspace = lazy(() =>
+  import("./workspaces/ChatWorkspace").then((module) => ({ default: module.ChatWorkspace })),
+);
+const ModelsWorkspace = lazy(() =>
+  import("./workspaces/ModelsWorkspace").then((module) => ({ default: module.ModelsWorkspace })),
+);
+const SpeechWorkspace = lazy(() =>
+  import("./workspaces/SpeechWorkspace").then((module) => ({ default: module.SpeechWorkspace })),
+);
+const EmbeddingsWorkspace = lazy(() =>
+  import("./workspaces/EmbeddingsWorkspace").then((module) => ({
+    default: module.EmbeddingsWorkspace,
+  })),
+);
 
 const workspaceForDigit: Record<string, Workspace> = {
   "1": "chat",
@@ -59,6 +84,14 @@ type PendingWorkspaceChange = {
   guard: WorkspaceLeaveGuard;
 };
 
+type OnboardingState = {
+  flow: OnboardingFlow;
+  source: "auto" | "manual";
+};
+
+const usageCompletedStorageKey = "foundryui.onboarding.usage.completed";
+const usageNeverShowStorageKey = "foundryui.onboarding.usage.neverShow";
+
 export default function App() {
   const [workspace, setWorkspace] = usePersistentState<Workspace>("foundryui.workspace", "chat", workspaces);
   const [theme, setTheme] = usePersistentState<ThemePreference>("foundryui.theme", "system", themes);
@@ -72,7 +105,10 @@ export default function App() {
   const [language, setLanguage] = usePersistentState<Language>("foundryui.language", detectLanguage(), languages);
   const systemPrefersDark = useSystemPrefersDark();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
+  const [installGuidance, setInstallGuidance] = useState<InstallGuidance>(() => fallbackInstallGuidance());
+  const [cliBannerOpen, setCliBannerOpen] = useState(false);
+  const [onboardingSpotlight, setOnboardingSpotlight] = useState<OnboardingSpotlightTarget>(null);
   const [openChatConversationId, setOpenChatConversationId] = useState<number | null>(null);
   const [listTarget, setListTarget] = useState<HTMLDivElement | null>(null);
   const [pendingWorkspaceChange, setPendingWorkspaceChange] = useState<PendingWorkspaceChange | null>(null);
@@ -83,6 +119,10 @@ export default function App() {
     let cancelled = false;
 
     async function checkFirstRun() {
+      const neverShowUsage = readStored(usageNeverShowStorageKey) === "1";
+      const usageCompleted = readStored(usageCompletedStorageKey) === "1";
+      const firstUsePending = !neverShowUsage && !usageCompleted;
+
       try {
         await cliDetect();
       } catch (error) {
@@ -90,9 +130,14 @@ export default function App() {
         const blocksSetup = failure.code === "CliMissing" || failure.code === "CliOutdated";
 
         if (!cancelled && blocksSetup) {
-          setOnboardingOpen(true);
+          setCliBannerOpen(true);
+          setOnboardingState({ flow: "critical-cli", source: "auto" });
         }
 
+        return;
+      }
+
+      if (!firstUsePending || cancelled) {
         return;
       }
 
@@ -100,14 +145,33 @@ export default function App() {
         const snapshot = await workspaceSnapshot();
 
         if (!cancelled) {
-          setOnboardingOpen(!snapshot.catalog.some((model) => model.cached));
+          setCliBannerOpen(false);
+          setOnboardingState({ flow: snapshot.server.running ? "usage" : "mixed", source: "auto" });
         }
       } catch {
-        return;
+        if (!cancelled) {
+          setOnboardingState({ flow: "mixed", source: "auto" });
+        }
       }
     }
 
     void checkFirstRun();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadInstallGuidance()
+      .then((next) => {
+        if (!cancelled) {
+          setInstallGuidance(next);
+        }
+      })
+      .catch(() => null);
 
     return () => {
       cancelled = true;
@@ -184,7 +248,7 @@ export default function App() {
       setWorkspace(next);
 
       if (options?.closeOnboarding) {
-        setOnboardingOpen(false);
+        setOnboardingState(null);
       }
     },
     [setWorkspace],
@@ -193,6 +257,10 @@ export default function App() {
   const requestWorkspaceChange = useCallback(
     async (next: Workspace, options?: { closeOnboarding?: boolean }) => {
       if (next === workspace) {
+        if (options?.closeOnboarding) {
+          setOnboardingState(null);
+        }
+
         return;
       }
 
@@ -270,8 +338,18 @@ export default function App() {
 
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
-  const closeOnboarding = useCallback(() => setOnboardingOpen(false), []);
-  const restartOnboarding = useCallback(() => setOnboardingOpen(true), []);
+  const runTechnicalOnboarding = useCallback(() => {
+    setOnboardingState({ flow: "technical", source: "manual" });
+  }, []);
+  const runUsageOnboarding = useCallback(() => {
+    setOnboardingState({ flow: "usage", source: "manual" });
+  }, []);
+  const refreshInstallGuidance = useCallback(async () => {
+    setInstallGuidance(await loadInstallGuidance({ forceRefresh: true }));
+  }, []);
+  const openCriticalCliSetup = useCallback(() => {
+    setOnboardingState({ flow: "critical-cli", source: "manual" });
+  }, []);
   const openModelsWorkspace = useCallback(() => {
     void requestWorkspaceChange("models");
   }, [requestWorkspaceChange]);
@@ -287,9 +365,59 @@ export default function App() {
   }, []);
   const chooseWorkspace = useCallback(
     (next: PrimaryWorkspace) => {
-      void requestWorkspaceChange(next, { closeOnboarding: true });
+      void requestWorkspaceChange(next);
     },
     [requestWorkspaceChange],
+  );
+  const focusUsageWorkspace = useCallback(
+    (next: Workspace | null) => {
+      if (!next) {
+        return;
+      }
+
+      void requestWorkspaceChange(next);
+    },
+    [requestWorkspaceChange],
+  );
+  const handleOnboardingEvent = useCallback(
+    (event: OnboardingEvent) => {
+      const current = onboardingState;
+      setOnboardingSpotlight(null);
+
+      if (event.type === "usage-never-show") {
+        writeStored(usageNeverShowStorageKey, "1");
+        setOnboardingState(null);
+        return;
+      }
+
+      if (event.type === "usage-complete") {
+        if (current?.source === "auto") {
+          writeStored(usageCompletedStorageKey, "1");
+        }
+
+        setOnboardingState(null);
+        return;
+      }
+
+      if (event.type === "critical-complete") {
+        setCliBannerOpen(false);
+        setOnboardingState(null);
+        return;
+      }
+
+      if (event.type === "critical-skipped") {
+        setCliBannerOpen(true);
+        setOnboardingState(null);
+        return;
+      }
+
+      if (current?.flow === "critical-cli") {
+        setCliBannerOpen(true);
+      }
+
+      setOnboardingState(null);
+    },
+    [onboardingState],
   );
   const setWorkspaceLeaveGuard = useCallback((scope: Workspace, guard: WorkspaceLeaveGuard | null) => {
     const next = { ...workspaceLeaveGuardsRef.current };
@@ -314,6 +442,19 @@ export default function App() {
     },
     [setWorkspaceLeaveGuard],
   );
+  const highlightWorkspacesMap = onboardingSpotlight === "rail-map";
+  const highlightRailItem: Workspace | null =
+    onboardingSpotlight === "rail-chat"
+      ? "chat"
+      : onboardingSpotlight === "rail-speech"
+        ? "speech"
+        : onboardingSpotlight === "rail-embeddings"
+          ? "embeddings"
+          : onboardingSpotlight === "rail-models"
+            ? "models"
+            : onboardingSpotlight === "rail-settings"
+              ? "settings"
+              : null;
 
   function startListResize(event: ReactPointerEvent<HTMLDivElement>) {
     if (workspace === "settings") {
@@ -387,7 +528,15 @@ export default function App() {
             onTypographyChange={setTypography}
             language={language}
             onLanguageChange={setLanguage}
-            onRestartOnboarding={restartOnboarding}
+            onRunTechnicalOnboarding={runTechnicalOnboarding}
+            onRunUsageOnboarding={runUsageOnboarding}
+            {...(import.meta.env.DEV
+              ? {
+                  onRefreshInstallGuidance: () => {
+                    void refreshInstallGuidance();
+                  },
+                }
+              : {})}
           />
         );
     }
@@ -403,12 +552,58 @@ export default function App() {
             : "grid-cols-[var(--list-width)_minmax(0,1fr)]",
         ].join(" ")}
       >
-        <Rail active={workspace} onSelect={(next) => void requestWorkspaceChange(next)} onShortcuts={openShortcuts}>
+        <Rail
+          active={workspace}
+          onSelect={(next) => void requestWorkspaceChange(next)}
+          onShortcuts={openShortcuts}
+          highlightWorkspacesMap={highlightWorkspacesMap}
+          highlightItem={highlightRailItem}
+        >
           <div ref={setListTarget} className="min-h-0 flex-1" />
         </Rail>
         <ContextListTarget.Provider value={listTarget}>
-          <main key={workspace} className="flex h-full min-h-0 min-w-0 flex-col">
-            {renderWorkspace()}
+          <main className="relative flex h-full min-h-0 min-w-0 flex-col">
+            {cliBannerOpen && onboardingState?.flow !== "critical-cli" ? (
+              <div className="flex items-start justify-between gap-3 border-b border-line bg-subtle px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-primary">{i18n.t("app.cliBanner.title")}</p>
+                  <p className="mt-0.5 text-[11px] text-secondary">{i18n.t("app.cliBanner.body")}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openCriticalCliSetup}
+                    className="inline-flex h-7 items-center rounded-[6px] bg-accent px-2.5 text-[11px] font-medium text-accent-contrast transition-colors hover:bg-accent-hover"
+                  >
+                    {i18n.t("app.cliBanner.open")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCliBannerOpen(false)}
+                    className="inline-flex h-7 items-center rounded-[6px] border border-line bg-elevated px-2.5 text-[11px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
+                  >
+                    {i18n.t("app.cliBanner.dismiss")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {onboardingState ? (
+              <Onboarding
+                flow={onboardingState.flow}
+                installGuidance={installGuidance}
+                onEvent={handleOnboardingEvent}
+                onChooseWorkspace={chooseWorkspace}
+                onSpotlightChange={setOnboardingSpotlight}
+                onUsageWorkspaceChange={focusUsageWorkspace}
+              />
+            ) : null}
+            <Suspense
+              fallback={<div className="flex min-h-0 flex-1 items-center justify-center bg-canvas" />}
+            >
+              <div key={workspace} className="detail-enter flex min-h-0 min-w-0 flex-1 flex-col">
+                {renderWorkspace()}
+              </div>
+            </Suspense>
           </main>
         </ContextListTarget.Provider>
         {workspace !== "settings" ? (
@@ -457,9 +652,6 @@ export default function App() {
         }}
         onClose={cancelWorkspaceChange}
       />
-      {onboardingOpen ? (
-        <Onboarding onClose={closeOnboarding} onChooseWorkspace={chooseWorkspace} />
-      ) : null}
     </ToastProvider>
   );
 }

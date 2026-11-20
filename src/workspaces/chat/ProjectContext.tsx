@@ -9,7 +9,6 @@ import { projectControlFocus, projectDialogFocus } from "./projectFocus";
 
 type ProjectContextProps = {
   project: ChatProject;
-  mode?: "review" | "automatic" | undefined;
   disabled: boolean;
   busy: boolean;
   error: string | null;
@@ -19,7 +18,7 @@ type ProjectContextProps = {
 };
 
 export function ProjectContext({
-  project, mode, disabled, busy, error, onRename, onRemove, onRelocate,
+  project, disabled, busy, error, onRename, onRemove, onRelocate,
 }: ProjectContextProps) {
   const { t } = useTranslation();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -46,11 +45,6 @@ export function ProjectContext({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate font-medium" title={project.name}>{project.name}</span>
-            {mode ? (
-              <span className="shrink-0 text-primary">
-                {t(mode === "automatic" ? "projects.automatic" : "projects.review")}
-              </span>
-            ) : null}
           </div>
           <span aria-label={t("projects.folder")} title={project.folderPath} className="mt-0.5 block truncate">
             {project.folderPath}

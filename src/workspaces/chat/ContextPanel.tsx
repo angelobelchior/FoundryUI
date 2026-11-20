@@ -5,7 +5,6 @@ import { projectControlFocus } from "./projectFocus";
 
 export function ContextPanel({ conversationId }: { conversationId: number }) {
   const { t, i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [budgets, setBudgets] = useState<ContextBudget[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -32,17 +31,14 @@ export function ContextPanel({ conversationId }: { conversationId: number }) {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void refresh();
-  }, [open, refresh]);
+  }, [refresh]);
 
   const button = `rounded-md border border-line px-2 py-1 text-[13px] text-primary hover:bg-hover disabled:opacity-50 ${projectControlFocus}`;
   const reason = (value: string) => (value === "budget" ? t("context.reasonBudget") : t("context.reasonOlder"));
   const fingerprint = (value: string) => value.slice(0, 12);
 
-  return <details className="mt-2" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className={`cursor-pointer ${projectControlFocus}`}>{t("context.title")}</summary>
-    {open ? <div className="mt-2 max-h-96 space-y-4 overflow-y-auto border-t border-line pt-3 text-[14px] [&_p]:max-w-[75ch]" aria-label={t("context.title")}>
+  return <div className="space-y-4 text-[14px] [&_p]:max-w-[75ch]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button type="button" className={button} onClick={() => void refresh()}>{t("context.refresh")}</button>
         {loading ? <span role="status">{t("context.loading")}</span> : null}
@@ -84,6 +80,5 @@ export function ContextPanel({ conversationId }: { conversationId: number }) {
           </div>
         </div>;
       })}
-    </div> : null}
-  </details>;
+  </div>;
 }

@@ -16,8 +16,8 @@ use foundry::commands::{
     chat_conversation_usage, chat_create_conversation, chat_delete_conversation, chat_edit_message,
     chat_export, chat_list_conversations, chat_list_messages, chat_regenerate,
     chat_rename_conversation, chat_search, chat_send_message, chat_set_conversation_archived,
-    chat_set_conversation_favorite, chat_set_model, cli_detect, cli_status, config_set,
-    config_show, diagnostics_report, diagnostics_snapshot, embeddings_answer,
+    chat_set_conversation_favorite, chat_set_model, chat_set_variant, cli_detect, cli_status,
+    config_set, config_show, diagnostics_report, diagnostics_snapshot, embeddings_answer,
     embeddings_cancel_vectorize, embeddings_compare, embeddings_create_corpus,
     embeddings_delete_corpus, embeddings_get_corpus, embeddings_import_lines,
     embeddings_list_corpora, embeddings_rename_corpus, embeddings_replace_documents,
@@ -143,6 +143,7 @@ pub fn run() {
             chat_set_conversation_archived,
             chat_set_conversation_favorite,
             chat_set_model,
+            chat_set_variant,
             chat_list_messages,
             chat_conversation_usage,
             chat_send_message,
@@ -196,11 +197,19 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building FoundryUI")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit)
-                && let Some(state) = app.try_state::<AppState>()
-            {
-                state.shutdown();
+        .run(|app, event| match event {
+            tauri::RunEvent::Ready => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unmaximize();
+                    let _ = window.center();
+                    let _ = window.maximize();
+                }
             }
+            tauri::RunEvent::Exit => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.shutdown();
+                }
+            }
+            _ => {}
         });
 }

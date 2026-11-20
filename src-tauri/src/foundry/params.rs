@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::chat::ChatParams;
+use super::chat::{ChatParams, GenerationParam, ReasoningEffort, ResponseVerbosity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -43,6 +43,8 @@ pub struct ResolvedParams {
     pub max_tokens: Resolved<u32>,
     pub seed: Resolved<i64>,
     pub stop: Resolved<Vec<String>>,
+    pub reasoning_effort: Resolved<ReasoningEffort>,
+    pub response_verbosity: Resolved<ResponseVerbosity>,
 }
 
 impl ResolvedParams {
@@ -53,6 +55,8 @@ impl ResolvedParams {
             max_tokens: self.max_tokens.value,
             seed: self.seed.value,
             stop: self.stop.value.clone(),
+            reasoning_effort: self.reasoning_effort.value,
+            response_verbosity: self.response_verbosity.value,
             ..ChatParams::default()
         }
     }
@@ -90,7 +94,54 @@ pub fn resolve(
             model.stop.clone(),
             global.stop.clone(),
         ),
+        reasoning_effort: pick(
+            conversation.reasoning_effort,
+            model.reasoning_effort,
+            global.reasoning_effort,
+        ),
+        response_verbosity: pick(
+            conversation.response_verbosity,
+            model.response_verbosity,
+            global.response_verbosity,
+        ),
     }
+}
+
+pub fn filter_supported(
+    mut resolved: ResolvedParams,
+    supported: &[GenerationParam],
+) -> ResolvedParams {
+    let supports = |field| supported.contains(&field);
+
+    if !supports(GenerationParam::ReasoningEffort) {
+        resolved.reasoning_effort = Resolved::default();
+    }
+
+    if !supports(GenerationParam::ResponseVerbosity) {
+        resolved.response_verbosity = Resolved::default();
+    }
+
+    if !supports(GenerationParam::Temperature) {
+        resolved.temperature = Resolved::default();
+    }
+
+    if !supports(GenerationParam::TopP) {
+        resolved.top_p = Resolved::default();
+    }
+
+    if !supports(GenerationParam::MaxTokens) {
+        resolved.max_tokens = Resolved::default();
+    }
+
+    if !supports(GenerationParam::Seed) {
+        resolved.seed = Resolved::default();
+    }
+
+    if !supports(GenerationParam::Stop) {
+        resolved.stop = Resolved::default();
+    }
+
+    resolved
 }
 
 fn pick<T>(conversation: Option<T>, model: Option<T>, global: Option<T>) -> Resolved<T> {
@@ -189,10 +240,20 @@ mod tests {
         let conversation = ChatParams {
             seed: Some(7),
             stop: Some(vec!["END".to_string()]),
+            response_verbosity: Some(ResponseVerbosity::Detailed),
             ..ChatParams::default()
         };
         let resolved = resolve(&conversation, &ChatParams::default(), &global);
         let mut payload = json!({"stream": true});
+
+        assert_eq!(
+            resolved.response_verbosity.value,
+            Some(ResponseVerbosity::Detailed)
+        );
+        assert_eq!(
+            resolved.response_verbosity.origin,
+            ParamOrigin::Conversation
+        );
 
         resolved.params().apply(&mut payload);
 

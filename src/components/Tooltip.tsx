@@ -5,8 +5,10 @@ type TooltipSide = "right" | "bottom";
 
 type TooltipProps = {
   label: string;
+  title?: string;
   side?: TooltipSide;
   children: ReactNode;
+  showDelayMs?: number;
 };
 
 const SHOW_DELAY_MS = 420;
@@ -23,7 +25,13 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-export function Tooltip({ label, side = "right", children }: TooltipProps) {
+export function Tooltip({
+  label,
+  title,
+  side = "right",
+  children,
+  showDelayMs = SHOW_DELAY_MS,
+}: TooltipProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
@@ -52,8 +60,8 @@ export function Tooltip({ label, side = "right", children }: TooltipProps) {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       setOpen(true);
-    }, SHOW_DELAY_MS);
-  }, [clearTimer, label]);
+    }, showDelayMs);
+  }, [clearTimer, label, showDelayMs]);
 
   const place = useCallback(() => {
     const anchor = anchorRef.current;
@@ -132,14 +140,23 @@ export function Tooltip({ label, side = "right", children }: TooltipProps) {
             <div
               ref={bubbleRef}
               role="tooltip"
-              className="tip-bubble"
+              className={title ? "tip-bubble tip-bubble-rich" : "tip-bubble"}
               style={
                 position
                   ? { top: position.top, left: position.left }
                   : { top: 0, left: 0, visibility: "hidden" }
               }
             >
-              {label}
+              {title ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.05em] text-tertiary">
+                    {title}
+                  </span>
+                  <span className="text-[11px] leading-relaxed text-secondary">{label}</span>
+                </div>
+              ) : (
+                label
+              )}
             </div>,
             document.body,
           )

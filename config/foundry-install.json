@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "platforms": {
+    "macos": {
+      "command": "brew tap microsoft/foundrylocal && brew install foundrylocal",
+      "installerUrl": "https://aka.ms/foundry-local-installer",
+      "docsUrl": "https://learn.microsoft.com/en-us/azure/foundry-local/how-to/how-to-use-foundry-local-cli"
+    },
+    "windows": {
+      "command": "winget install Microsoft.FoundryLocal",
+      "installerUrl": "https://aka.ms/foundry-local-installer",
+      "docsUrl": "https://learn.microsoft.com/en-us/azure/foundry-local/how-to/how-to-use-foundry-local-cli"
+    },
+    "linux": {
+      "command": null,
+      "installerUrl": "https://aka.ms/foundry-local-installer",
+      "docsUrl": "https://learn.microsoft.com/en-us/azure/foundry-local/how-to/how-to-use-foundry-local-cli"
+    },
+    "unknown": {
+      "command": null,
+      "installerUrl": "https://aka.ms/foundry-local-installer",
+      "docsUrl": "https://learn.microsoft.com/en-us/azure/foundry-local/how-to/how-to-use-foundry-local-cli"
+    }
+  }
+}

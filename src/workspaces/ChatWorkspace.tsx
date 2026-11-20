@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ContextList } from "../components/ContextList";
 import { EmptyState, ListEmpty } from "../components/EmptyState";
-import { ModelAccessPanel } from "../components/ModelAccessPanel";
 import {
   AlertIcon,
   ArchiveIcon,
   ChatIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   CloseIcon,
-  FolderIcon,
+  DownloadIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -35,6 +35,7 @@ import {
   setConversationArchived,
   setConversationFavorite,
   setConversationModel,
+  setConversationVariant,
   type ChatMessage,
   type Conversation,
   type ExportFormat,
@@ -54,6 +55,7 @@ import {
 } from "../lib/attachments";
 import {
   catalogModel,
+  downloadModel,
   FoundryCommandError,
   loadModel,
   startServer,
@@ -62,10 +64,15 @@ import {
   workspaceSnapshot,
   type CatalogModel,
   type Declared,
+  type JobStatus,
   type LoadedModel,
+  type ModelJob,
+  type ModelVariant,
 } from "../lib/foundry";
 import { minimumSearchQuery, searchResultLimit } from "../lib/search";
 import { dragWindowFromMouseDown } from "../lib/drag";
+import { ModelPicker } from "../components/ModelPicker";
+import { useModelJobStream } from "../lib/useModelJobStream";
 import { ConfirmDialog } from "./models/ConfirmDialog";
 import { errorLabel } from "./models/format";
 import { Composer } from "./chat/Composer";
@@ -84,7 +91,7 @@ import { projectErrorLabel } from "./chat/projectErrors";
 import { ProjectCreateDialog } from "./chat/ProjectCreateDialog";
 import { projectControlFocus } from "./chat/projectFocus";
 import { cx } from "../lib/cx";
-import { AgentExecution } from "./chat/AgentExecution";
+import { ExecutionPopover } from "./chat/ExecutionPopover";
 import { useAgentExecution } from "./chat/useAgentExecution";
 
 const THREAD_PAGE_SIZE = 80;
@@ -115,6 +122,7 @@ export function ChatWorkspace({
 }: ChatWorkspaceProps) {
   const { t } = useTranslation();
   const { push } = useToast();
+
   const [projects, setProjects] = useState<ChatProject[]>([]);
   const [projectsView, setProjectsView] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -129,9 +137,6 @@ export function ChatWorkspace({
   const pendingFolderSelection = useRef<ProjectFolderSelection | null>(null);
   const projectWorkspaceMounted = useRef(true);
   const moveReturnFocus = useRef<HTMLElement | null>(null);
-  const [conversationContexts, setConversationContexts] = useState<
-    Record<number, ProjectConversation["context"]>
-  >({});
   const selectedProject = projects.find((project) => project.id === projectId) ?? null;
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -172,6 +177,8 @@ export function ChatWorkspace({
   const [exporting, setExporting] = useState(false);
   const [loadingModelAlias, setLoadingModelAlias] = useState<string | null>(null);
   const [freeingMemoryAlias, setFreeingMemoryAlias] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<Record<string, ModelJob>>({});
+  const jobStatusRef = useRef<Record<string, JobStatus>>({});
   const [listFilterOpen, setListFilterOpen] = useState(false);
   const [listQuery, setListQuery] = useState("");
   const activeRef = useRef<ActiveGeneration | null>(null);
@@ -198,13 +205,20 @@ export function ChatWorkspace({
   const cachedChatModels = (catalog ?? []).filter(
     (model) => (model.kind === "chat" || model.kind === "multimodal") && model.cached,
   );
-  const loadableChatAliases = cachedChatModels
-    .filter((model) => !chatModels.some((loadedModel) => loadedModel.alias === model.alias))
-    .map((model) => model.alias);
+  const allChatModels = (catalog ?? []).filter(
+    (model) => model.kind === "chat" || model.kind === "multimodal",
+  );
   const streamingConversationId = active?.conversationId ?? null;
   const draft = selectedId === null ? "" : (drafts[selectedId] ?? "");
   const attachments = selectedId === null ? [] : (staged[selectedId] ?? []);
   const selectedModelAlias = selected?.modelAlias ?? null;
+  const selectedVariantId = selected?.modelVariantId ?? null;
+  const selectedCatalogModel =
+    selectedModelAlias === null
+      ? null
+      : (catalog ?? []).find(
+          (model) => model.alias === selectedModelAlias || model.id === selectedModelAlias,
+        ) ?? null;
   const unloadCandidate = useMemo(
     () => pickUnloadCandidate(loaded ?? [], selectedModelAlias),
     [loaded, selectedModelAlias],
@@ -410,10 +424,6 @@ export function ChatWorkspace({
     const next = entries.map((entry) => entry.conversation);
     const intent = selectionIntent.current;
     const preferredId = intent?.navigation === scopeNavigation.current ? intent.id : null;
-    setConversationContexts((current) => ({
-      ...current,
-      ...Object.fromEntries(entries.map((entry) => [entry.conversation.id, entry.context])),
-    }));
     setConversations(next);
     setSelectedId((current) => {
       if (preferredId !== null && next.some((entry) => entry.id === preferredId)) return preferredId;
@@ -558,7 +568,6 @@ export function ChatWorkspace({
       if (!receipt) return;
       const context = receipt.contexts.find((entry) => entry.conversationId === selected.id);
       if (!context) throw new Error("Missing committed conversation context");
-      setConversationContexts((current) => ({ ...current, [selected.id]: context }));
       setProjectMoveOpen(false);
       if (navigation !== scopeNavigation.current) return;
       commitScopeNavigation(context.projectId, archivedView, context.projectId !== null, selected.id);
@@ -619,6 +628,37 @@ export function ChatWorkspace({
   }, [projectId, archivedView, scopeRevision, loadScopeConversations]);
 
   useEffect(() => { void refreshModels(); }, [refreshModels]);
+
+  useModelJobStream((job, hydrated) => {
+    setJobs((current) => {
+      const known = current[job.alias];
+
+      if (known && known.updatedAt > job.updatedAt) {
+        return current;
+      }
+
+      return { ...current, [job.alias]: job };
+    });
+
+    if (hydrated) {
+      jobStatusRef.current[job.alias] = job.status;
+
+      return;
+    }
+
+    const previous = jobStatusRef.current[job.alias];
+
+    jobStatusRef.current[job.alias] = job.status;
+
+    if (previous === job.status) {
+      return;
+    }
+
+    if (job.status === "succeeded") {
+      push(t("models.actions.downloaded", { alias: job.alias }), "neutral");
+      void refreshModels();
+    }
+  });
 
   useEffect(() => {
     if (!selectedModelAlias) {
@@ -906,7 +946,7 @@ export function ChatWorkspace({
   }
 
   async function startConversation() {
-    const modelAlias = chatModels[0]?.alias;
+    const modelAlias = chatModels[0]?.alias ?? cachedChatModels[0]?.alias;
 
     if (!modelAlias || active || sending || projectBusy) {
       return;
@@ -919,7 +959,6 @@ export function ChatWorkspace({
       const entry = await projectApi.createConversation(projectId, modelAlias);
       if (navigation !== scopeNavigation.current) return;
       const conversation = entry.conversation;
-      setConversationContexts((current) => ({ ...current, [conversation.id]: entry.context }));
       selectionIntent.current = { navigation, id: conversation.id };
 
       if (archivedView) {
@@ -969,12 +1008,23 @@ export function ChatWorkspace({
     }
   }
 
+  async function downloadChatModelAlias(alias: string) {
+    try {
+      await downloadModel(alias);
+      setBanner(null);
+    } catch (error) {
+      setBanner(toFoundryCommandError(error));
+    }
+  }
+
   async function ensureConversationModelLoaded(conversation: Conversation) {
-    if (isModelLoaded(conversation.modelAlias)) {
+    const target = conversationLoadTarget(conversation);
+
+    if (isModelLoaded(target)) {
       return;
     }
 
-    await runModelLoad(conversation.modelAlias, true);
+    await runModelLoad(target, true);
   }
 
   async function recoverServerConnection(refreshList: boolean): Promise<boolean> {
@@ -1013,7 +1063,7 @@ export function ChatWorkspace({
 
     if (failure.code === "ModelNotLoaded") {
       try {
-        await runModelLoad(conversation.modelAlias, true);
+        await runModelLoad(conversationLoadTarget(conversation), true);
         return true;
       } catch (error) {
         setBanner(toFoundryCommandError(error));
@@ -1370,6 +1420,33 @@ export function ChatWorkspace({
     }
   }
 
+  async function changeVariant(modelVariantId: string) {
+    if (!selected || active) {
+      return;
+    }
+
+    const next = modelVariantId.trim() ? modelVariantId.trim() : null;
+
+    if ((selected.modelVariantId ?? null) === next) {
+      return;
+    }
+
+    const navigation = scopeNavigation.current;
+    try {
+      const change = await setConversationVariant(selected.id, next);
+      if (navigation !== scopeNavigation.current) return;
+      setConversations((current) => mergeVisibleConversation(current, change.conversation));
+
+      const divider = change.divider;
+
+      if (divider && selectedIdRef.current === change.conversation.id) {
+        setMessages((current) => mergeMessages(current, [divider]));
+      }
+    } catch (error) {
+      if (navigation === scopeNavigation.current) setBanner(toFoundryCommandError(error));
+    }
+  }
+
   function openRename() {
     if (!selected) {
       return;
@@ -1495,10 +1572,12 @@ export function ChatWorkspace({
     }
 
     if (banner.code === "ModelNotLoaded" && selected) {
+      const target = conversationLoadTarget(selected);
+
       return {
         label: t("models.actions.load"),
-        busy: loadingModelAlias === selected.modelAlias,
-        onClick: () => void loadChatModelAlias(selected.modelAlias),
+        busy: loadingModelAlias === target,
+        onClick: () => void loadChatModelAlias(target),
       };
     }
 
@@ -1541,19 +1620,74 @@ export function ChatWorkspace({
     t,
   ]);
 
-  const modelOptions: ChatModelOption[] = chatModels.map((model) => ({
-    value: model.alias,
-    label: model.alias,
-    hint: model.displayName ?? model.id,
-  }));
+  const variantOptions: ChatModelOption[] = [
+    {
+      value: "",
+      label: t("chat.variantAuto"),
+      hint: t("chat.variantAutoHint"),
+    },
+    ...(selectedCatalogModel?.variants ?? []).map((variant) => ({
+      value: variant.id,
+      label: variant.displayName ?? variant.id,
+      hint: variantLabel(variant),
+    })),
+  ];
 
-  if (selected && !modelOptions.some((option) => option.value === selected.modelAlias)) {
-    modelOptions.unshift({
-      value: selected.modelAlias,
-      label: selected.modelAlias,
-      hint: t("chat.notLoaded"),
+  if (
+    selectedVariantId &&
+    !variantOptions.some((option) => option.value === selectedVariantId)
+  ) {
+    variantOptions.unshift({
+      value: selectedVariantId,
+      label: selectedVariantId,
+      hint: t("chat.variantNotInCatalog"),
     });
   }
+
+  const hasVariantMenu = Boolean(selectedVariantId) || (selectedCatalogModel?.variants.length ?? 0) > 0;
+
+  const composerControls = selected ? (
+    <>
+      <span className="inline-flex h-7 items-center rounded-[7px] bg-subtle px-2 text-[10px] font-semibold uppercase tracking-[0.04em] text-tertiary">
+        {t("params.origin.conversation")}
+      </span>
+      <ModelPicker
+        label={t("chat.model")}
+        models={allChatModels}
+        selectedAlias={selected.modelAlias}
+        disabled={active !== null}
+        loadingAlias={loadingModelAlias}
+        jobs={jobs}
+        placement="up"
+        onOpenModels={onOpenModels}
+        onUse={(modelAlias) => void changeModel(modelAlias)}
+        onLoad={(alias) => void loadChatModelAlias(alias)}
+        onDownload={(alias) => void downloadChatModelAlias(alias)}
+      />
+      {hasVariantMenu ? (
+        <ModelMenu
+          label={t("chat.variant")}
+          value={selected.modelVariantId ?? ""}
+          options={variantOptions}
+          disabled={active !== null}
+          emphasized={Boolean(selected.modelVariantId)}
+          onChange={(value) => void changeVariant(value)}
+        />
+      ) : null}
+      <ParamsPopover
+        conversationId={selected.id}
+        modelAlias={selected.modelAlias}
+        supportedFields={selectedCatalogModel?.supportedGenerationParams}
+        disabled={active !== null}
+      />
+      <ExecutionPopover
+        agent={agent}
+        compatible={agentCompatible}
+        disabled={active !== null || sending}
+        hasAttachments={attachments.length > 0}
+      />
+    </>
+  ) : null;
 
   const emptyTitle = loadedError
     ? t("chat.noModelTitle")
@@ -1566,7 +1700,6 @@ export function ChatWorkspace({
       ? t("chat.noModelBody")
       : t("chat.emptyBody");
   const missingDownloadedChatModels = catalog !== null && cachedChatModels.length === 0;
-  const missingLoadedChatModels = catalog !== null && chatModels.length === 0 && cachedChatModels.length > 0;
   const actionsDisabled = active !== null || sending || agent.busy;
   const filteredConversations = useMemo(() => {
     const query = listQuery.trim().toLocaleLowerCase();
@@ -1605,7 +1738,6 @@ export function ChatWorkspace({
     <ProjectContext
       key={selectedProject.id}
       project={selectedProject}
-      mode={agent.status?.mode ?? (selectedId === null ? undefined : conversationContexts[selectedId]?.mode)}
       disabled={actionsDisabled}
       busy={projectBusy}
       error={projectError}
@@ -1615,10 +1747,18 @@ export function ChatWorkspace({
     />
   ) : null;
 
+  const listTitle = selectedProject
+    ? selectedProject.name
+    : archivedView
+      ? t("chat.archivedTitle")
+      : projectsView
+        ? t("projects.title")
+        : t("chat.listTitle");
+
   return (
     <>
       <ContextList
-        title={projectsView ? t("projects.title") : archivedView ? t("chat.archivedTitle") : t("chat.listTitle")}
+        title={listTitle}
         action={
           <div className="flex items-center gap-0.5">
             {projectsView ? (
@@ -1628,7 +1768,7 @@ export function ChatWorkspace({
                 disabled={projectBusy || actionsDisabled}
                 className={projectControlFocus}
               >
-                {selectedProject ? <FolderIcon size={14} /> : <PlusIcon size={15} />}
+                <PlusIcon size={15} />
               </IconButton>
             ) : null}
             {!projectsView || selectedProject ? <>
@@ -1648,7 +1788,7 @@ export function ChatWorkspace({
             <IconButton
               label={t("chat.new")}
               onClick={() => void startConversation()}
-              disabled={!chatModels.length || actionsDisabled || projectBusy}
+              disabled={!cachedChatModels.length || actionsDisabled || projectBusy}
             >
               <PlusIcon size={15} />
             </IconButton>
@@ -1657,21 +1797,18 @@ export function ChatWorkspace({
         }
         toolbar={
           <div className="space-y-2">
-          <ProjectNavigation projectsView={projectsView} onChange={switchOrganization} />
           {selectedProject ? (
-            <div className="min-w-0">
-              <button
-                type="button"
-                className={cx("text-[12px] text-primary", projectControlFocus)}
-                onClick={() => switchOrganization(true)}
-              >
-                {t("projects.all")}
-              </button>
-              <p className="mt-1 truncate text-[12px] font-medium text-primary" title={selectedProject.name}>
-                {selectedProject.name}
-              </p>
-            </div>
-          ) : null}
+            <button
+              type="button"
+              onClick={() => switchOrganization(true)}
+              className={cx("inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium text-primary transition-colors hover:bg-hover", projectControlFocus)}
+            >
+              <ChevronLeftIcon size={14} />
+              {t("projects.all")}
+            </button>
+          ) : (
+            <ProjectNavigation projectsView={projectsView} onChange={switchOrganization} />
+          )}
           {projectError ? <p role="alert" className="text-[12px] leading-relaxed text-danger">{projectError}</p> : null}
           {projectNotice ? <p role="status" className="text-[12px] leading-relaxed text-primary">{projectNotice}</p> : null}
           {(!projectsView || selectedProject) && (listFilterOpen || listQuery.trim()) ? (
@@ -1792,18 +1929,6 @@ export function ChatWorkspace({
                       busy={exporting}
                       onExport={(format) => void runExport(format)}
                     />
-                    <ParamsPopover
-                      conversationId={selected.id}
-                      modelAlias={selected.modelAlias}
-                      disabled={active !== null}
-                    />
-                    <ModelMenu
-                      label={t("chat.model")}
-                      value={selected.modelAlias}
-                      options={modelOptions}
-                      disabled={active !== null}
-                      onChange={(modelAlias) => void changeModel(modelAlias)}
-                    />
                   </div>
                   <div className="mt-2.5 flex items-center justify-end gap-1 border-t border-line pt-2.5">
                     <IconButton
@@ -1836,33 +1961,6 @@ export function ChatWorkspace({
             />
           ) : null}
 
-          {!loadedError && (missingDownloadedChatModels || missingLoadedChatModels) ? (
-            <div className="shrink-0 border-b border-line bg-canvas px-4 py-3 sm:px-5">
-              <div className="mx-auto max-w-[760px]">
-                <ModelAccessPanel
-                  title={
-                    missingDownloadedChatModels
-                      ? t("common.noDownloadedModelTitle", { kind: t("models.kinds.chat") })
-                      : t("common.noLoadedModelTitle", { kind: t("models.kinds.chat") })
-                  }
-                  body={
-                    missingDownloadedChatModels
-                      ? t("common.noDownloadedModelBody", { kind: t("models.kinds.chat") })
-                      : t("common.noLoadedModelBody", { kind: t("models.kinds.chat") })
-                  }
-                  listTitle={t("common.downloadedModels")}
-                  models={loadableChatAliases}
-                  loadLabel={t("models.actions.load")}
-                  loadingLabel={t("common.loading")}
-                  openModelsLabel={t("common.openModels")}
-                  loadingAlias={loadingModelAlias}
-                  onLoad={(alias) => void loadChatModelAlias(alias)}
-                  onOpenModels={() => onOpenModels?.()}
-                />
-              </div>
-            </div>
-          ) : null}
-
           {searchOpen ? (
             <SearchPanel
               inputRef={searchInputRef}
@@ -1884,7 +1982,7 @@ export function ChatWorkspace({
             </div>
           ) : (
             <MessageList
-              key={selected.id}
+              key={`messages-${selected.id}`}
               messages={messages}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
@@ -1896,13 +1994,6 @@ export function ChatWorkspace({
             />
           )}
 
-          <AgentExecution
-            key={selected.id}
-            agent={agent}
-            compatible={agentCompatible}
-            disabled={active !== null || sending}
-            hasAttachments={attachments.length > 0}
-          />
           <Composer
             value={draft}
             sending={sending}
@@ -1917,6 +2008,7 @@ export function ChatWorkspace({
             onStop={() => void stop()}
             onAttach={(files) => void attachFiles(files)}
             onRemoveAttachment={removeAttachment}
+            controls={composerControls}
           />
         </section>
       ) : (
@@ -1938,32 +2030,25 @@ export function ChatWorkspace({
               onDismiss={() => setBanner(null)}
             />
           ) : null}
-          {!loadedError && (missingDownloadedChatModels || missingLoadedChatModels) ? (
-            <div className="mx-auto w-full max-w-[760px] px-4 py-5 sm:px-6 sm:py-6">
-              <ModelAccessPanel
-                title={
-                  missingDownloadedChatModels
-                    ? t("common.noDownloadedModelTitle", { kind: t("models.kinds.chat") })
-                    : t("common.noLoadedModelTitle", { kind: t("models.kinds.chat") })
+          <EmptyState
+            icon={ChatIcon}
+            title={emptyTitle}
+            body={emptyBody}
+            {...(missingDownloadedChatModels
+              ? {
+                  action: (
+                    <button
+                      type="button"
+                      onClick={() => onOpenModels?.()}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 text-[12px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
+                    >
+                      <DownloadIcon size={12} />
+                      {t("models.actions.download")}
+                    </button>
+                  ),
                 }
-                body={
-                  missingDownloadedChatModels
-                    ? t("common.noDownloadedModelBody", { kind: t("models.kinds.chat") })
-                    : t("common.noLoadedModelBody", { kind: t("models.kinds.chat") })
-                }
-                listTitle={t("common.downloadedModels")}
-                models={loadableChatAliases}
-                loadLabel={t("models.actions.load")}
-                loadingLabel={t("common.loading")}
-                openModelsLabel={t("common.openModels")}
-                loadingAlias={loadingModelAlias}
-                onLoad={(alias) => void loadChatModelAlias(alias)}
-                onOpenModels={() => onOpenModels?.()}
-              />
-            </div>
-          ) : (
-            <EmptyState icon={ChatIcon} title={emptyTitle} body={emptyBody} />
-          )}
+              : {})}
+          />
         </section>
       )}
 
@@ -2134,6 +2219,20 @@ function isChatModel(model: LoadedModel): boolean {
 
 function matchesModelAlias(model: LoadedModel, alias: string): boolean {
   return model.alias === alias || model.id === alias;
+}
+
+function conversationLoadTarget(conversation: Conversation): string {
+  return conversation.modelVariantId ?? conversation.modelAlias;
+}
+
+function variantLabel(variant: ModelVariant): string {
+  const device = variant.device?.toUpperCase() ?? null;
+  const provider = variant.executionProvider?.replace(/ExecutionProvider$/, "") ?? null;
+  const tags = [device, provider !== device ? provider : null, variant.cached ? "cached" : null].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  return tags.join(" · ") || variant.id;
 }
 
 function pickUnloadCandidate(

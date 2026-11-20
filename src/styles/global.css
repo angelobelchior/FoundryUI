@@ -104,6 +104,14 @@
   animation: tip-in 120ms ease both;
 }
 
+.tip-bubble-rich {
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border-radius: 8px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 @keyframes tip-in {
   from {
     opacity: 0;
@@ -443,6 +451,60 @@
 
 .fade-in {
   animation: fade-in 160ms ease both;
+}
+
+@keyframes onboarding-spotlight-pulse {
+  from {
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.72),
+      0 0 16px rgba(59, 130, 246, 0.36);
+  }
+
+  to {
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.86),
+      0 0 28px rgba(59, 130, 246, 0.62);
+  }
+}
+
+.onboarding-spotlight {
+  animation: onboarding-spotlight-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes onboarding-pointer-nudge-left {
+  0%,
+  100% {
+    transform: rotate(45deg) translateX(0);
+  }
+
+  50% {
+    transform: rotate(45deg) translateX(-1.5px);
+  }
+}
+
+@keyframes onboarding-pointer-nudge-right {
+  0%,
+  100% {
+    transform: rotate(45deg) translateX(0);
+  }
+
+  50% {
+    transform: rotate(45deg) translateX(1.5px);
+  }
+}
+
+.onboarding-pointer {
+  animation-duration: 950ms;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.onboarding-pointer-left {
+  animation-name: onboarding-pointer-nudge-left;
+}
+
+.onboarding-pointer-right {
+  animation-name: onboarding-pointer-nudge-right;
 }
 
 @keyframes indeterminate-progress {

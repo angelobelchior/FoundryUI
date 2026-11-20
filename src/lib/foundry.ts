@@ -41,6 +41,15 @@ export type ModelVariant = {
   cached: boolean;
 };
 
+export type GenerationParam =
+  | "reasoningEffort"
+  | "responseVerbosity"
+  | "temperature"
+  | "topP"
+  | "maxTokens"
+  | "seed"
+  | "stop";
+
 export type ModelSummary = {
   alias: string;
   id: string;
@@ -54,6 +63,7 @@ export type ModelSummary = {
   license: string | null;
   publisher: string | null;
   supportsToolCalling: boolean;
+  supportsReasoning: boolean;
   inputModalities: string[];
 };
 
@@ -178,6 +188,7 @@ export type CatalogModel = {
   cached: boolean;
   loaded: boolean;
   supportsToolCalling: boolean;
+  supportsReasoning: boolean;
   license: string | null;
   publisher: string | null;
   inputModalities: Declared<string[]>;
@@ -186,6 +197,7 @@ export type CatalogModel = {
   embeddingDimensions: Declared<number>;
   quantization: Declared<string>;
   overlaySource: string | null;
+  supportedGenerationParams: GenerationParam[];
   variants: ModelVariant[];
 };
 

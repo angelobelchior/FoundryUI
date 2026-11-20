@@ -25,7 +25,7 @@ export function TokenUsageBadge({ usage }: TokenUsageBadgeProps) {
   });
 
   return (
-    <Tooltip label={label} side="bottom">
+    <Tooltip label={label} title={t("chat.tokensTooltipTitle")} side="bottom">
       <span
         role="img"
         aria-label={label}

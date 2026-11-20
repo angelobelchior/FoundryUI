@@ -1,7 +1,7 @@
-import { CheckIcon } from "../../components/Icon";
-import { cx } from "../../lib/cx";
+import { CheckIcon } from "./Icon";
+import { cx } from "../lib/cx";
 
-export type FlowStep = 1 | 2 | 3;
+export type FlowStep = number;
 
 type FlowStepperStep = {
   value: FlowStep;
@@ -16,10 +16,18 @@ type FlowStepperProps = {
   onSelect: (step: FlowStep) => void;
 };
 
+function gridColumns(count: number): string {
+  if (count <= 3) {
+    return "grid-cols-3";
+  }
+
+  return "grid-cols-4";
+}
+
 export function FlowStepper({ label, steps, current, furthest, onSelect }: FlowStepperProps) {
   return (
     <nav aria-label={label} className="border-b border-line pb-2.5">
-      <ol className="grid grid-cols-3 gap-1">
+      <ol className={cx("grid gap-1", gridColumns(steps.length))}>
         {steps.map((step) => {
           const done = step.value < current;
           const active = step.value === current;

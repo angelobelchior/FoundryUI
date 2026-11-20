@@ -1,5 +1,5 @@
 export const permissionsEnglish = {
-  title: "Permissions and instructions",
+  title: "Permissions and instructions", tab: "Permissions",
   grants: "Folder grants for this conversation",
   grantsEmpty: "No standalone folder grants in this conversation.",
   grantFolder: "Grant folder access",
@@ -26,7 +26,7 @@ export const permissionsEnglish = {
 };
 
 export const permissionsPortuguese: typeof permissionsEnglish = {
-  title: "Permissões e instruções",
+  title: "Permissões e instruções", tab: "Permissões",
   grants: "Concessões de pasta desta conversa",
   grantsEmpty: "Nenhuma concessão de pasta independente nesta conversa.",
   grantFolder: "Conceder acesso a pasta",
@@ -53,7 +53,7 @@ export const permissionsPortuguese: typeof permissionsEnglish = {
 };
 
 export const permissionsSpanish: typeof permissionsEnglish = {
-  title: "Permisos e instrucciones",
+  title: "Permisos e instrucciones", tab: "Permisos",
   grants: "Concesiones de carpeta de esta conversación",
   grantsEmpty: "No hay concesiones de carpeta independientes en esta conversación.",
   grantFolder: "Conceder acceso a carpeta",

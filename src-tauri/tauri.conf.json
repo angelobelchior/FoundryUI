@@ -16,6 +16,7 @@
         "title": "FoundryUI",
         "width": 1280,
         "height": 820,
+        "maximized": false,
         "minWidth": 960,
         "minHeight": 640,
         "center": true,

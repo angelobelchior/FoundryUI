@@ -1,5 +1,5 @@
 export const snapshotsEnglish = {
-  title: "Attached conversations",
+  title: "Attached conversations", tab: "Attached",
   empty: "No conversations attached. Attach one so the model can consult a read-only copy.",
   search: "Search conversations",
   searchPlaceholder: "Type to search by title…",
@@ -25,7 +25,7 @@ export const snapshotsEnglish = {
 };
 
 export const snapshotsPortuguese: typeof snapshotsEnglish = {
-  title: "Conversas anexadas",
+  title: "Conversas anexadas", tab: "Anexos",
   empty: "Nenhuma conversa anexada. Anexe uma para que o modelo possa consultar uma cópia somente leitura.",
   search: "Buscar conversas",
   searchPlaceholder: "Digite para buscar pelo título…",
@@ -51,7 +51,7 @@ export const snapshotsPortuguese: typeof snapshotsEnglish = {
 };
 
 export const snapshotsSpanish: typeof snapshotsEnglish = {
-  title: "Conversaciones adjuntas",
+  title: "Conversaciones adjuntas", tab: "Adjuntas",
   empty: "No hay conversaciones adjuntas. Adjunta una para que el modelo consulte una copia de solo lectura.",
   search: "Buscar conversaciones",
   searchPlaceholder: "Escribe para buscar por título…",

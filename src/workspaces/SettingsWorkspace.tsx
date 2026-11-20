@@ -94,7 +94,9 @@ type SettingsWorkspaceProps = {
   onTypographyChange: (typography: TypographyPreference) => void;
   language: Language;
   onLanguageChange: (language: Language) => void;
-  onRestartOnboarding: () => void;
+  onRunTechnicalOnboarding: () => void;
+  onRunUsageOnboarding: () => void;
+  onRefreshInstallGuidance?: () => void;
 };
 
 type SavedServerSettings = {
@@ -126,7 +128,9 @@ export function SettingsWorkspace({
   onTypographyChange,
   language,
   onLanguageChange,
-  onRestartOnboarding,
+  onRunTechnicalOnboarding,
+  onRunUsageOnboarding,
+  onRefreshInstallGuidance,
 }: SettingsWorkspaceProps) {
   const { t, i18n } = useTranslation();
   const { push } = useToast();
@@ -910,15 +914,37 @@ export function SettingsWorkspace({
           ) : null}
 
           {section === "onboarding" ? (
-            <SettingRow title={t("settings.onboarding.label")} help={t("settings.onboarding.help")}>
-              <button
-                type="button"
-                onClick={onRestartOnboarding}
-                className="inline-flex h-[var(--control-size)] items-center rounded-[var(--item-radius)] border border-line bg-elevated px-3 text-[12px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
-              >
-                {t("settings.onboarding.run")}
-              </button>
-            </SettingRow>
+            <>
+              <SettingRow title={t("settings.onboarding.technicalLabel")} help={t("settings.onboarding.technicalHelp")}>
+                <button
+                  type="button"
+                  onClick={onRunTechnicalOnboarding}
+                  className="inline-flex h-[var(--control-size)] items-center rounded-[var(--item-radius)] border border-line bg-elevated px-3 text-[12px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
+                >
+                  {t("settings.onboarding.runTechnical")}
+                </button>
+              </SettingRow>
+              <SettingRow title={t("settings.onboarding.usageLabel")} help={t("settings.onboarding.usageHelp")}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onRunUsageOnboarding}
+                    className="inline-flex h-[var(--control-size)] items-center rounded-[var(--item-radius)] border border-line bg-elevated px-3 text-[12px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
+                  >
+                    {t("settings.onboarding.runUsage")}
+                  </button>
+                  {onRefreshInstallGuidance ? (
+                    <button
+                      type="button"
+                      onClick={onRefreshInstallGuidance}
+                      className="inline-flex h-[var(--control-size)] items-center rounded-[var(--item-radius)] border border-line bg-elevated px-3 text-[12px] font-medium text-secondary transition-colors hover:bg-hover hover:text-primary"
+                    >
+                      {t("settings.onboarding.refreshInstallGuidance")}
+                    </button>
+                  ) : null}
+                </div>
+              </SettingRow>
+            </>
           ) : null}
 
           {section === "about" ? (

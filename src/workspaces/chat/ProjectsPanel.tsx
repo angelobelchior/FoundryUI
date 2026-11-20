@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { FolderIcon } from "../../components/Icon";
+import { ChatIcon, FolderIcon } from "../../components/Icon";
 import { ListEmpty } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import type { ChatProject } from "../../lib/projects";
@@ -15,21 +15,26 @@ export function ProjectNavigation({ projectsView, onChange }: ProjectNavigationP
   const { t } = useTranslation();
   return (
     <div className="flex items-center gap-1" role="group" aria-label={t("projects.organization")}>
-      {[false, true].map((value) => (
-        <button
-          key={String(value)}
-          type="button"
-          aria-pressed={projectsView === value}
-          onClick={() => onChange(value)}
-          className={cx(
-            "min-w-0 flex-1 rounded-[var(--item-radius)] px-2 py-1.5 text-[12px] font-medium transition-colors",
-            projectsView === value ? "bg-active text-primary" : "text-primary hover:bg-hover",
-            projectControlFocus,
-          )}
-        >
-          {t(value ? "projects.title" : "chat.listTitle")}
-        </button>
-      ))}
+      {[false, true].map((value) => {
+        const Icon = value ? FolderIcon : ChatIcon;
+
+        return (
+          <button
+            key={String(value)}
+            type="button"
+            aria-pressed={projectsView === value}
+            onClick={() => onChange(value)}
+            className={cx(
+              "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[var(--item-radius)] px-2 py-1.5 text-[12px] font-medium transition-colors",
+              projectsView === value ? "bg-active text-primary" : "text-primary hover:bg-hover",
+              projectControlFocus,
+            )}
+          >
+            <Icon size={14} className="shrink-0" />
+            {t(value ? "projects.title" : "chat.listTitle")}
+          </button>
+        );
+      })}
     </div>
   );
 }

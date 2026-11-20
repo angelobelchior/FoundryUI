@@ -1,5 +1,5 @@
 export const contextEnglish = {
-  title: "Context used",
+  title: "Context used", tab: "Context",
   empty: "No context manifest recorded yet. Each execution records what was actually sent once it starts.",
   loading: "Loading context manifests…",
   error: "Could not load context manifests. Retry; no successful change is being assumed.",
@@ -21,7 +21,7 @@ export const contextEnglish = {
 };
 
 export const contextPortuguese: typeof contextEnglish = {
-  title: "Contexto usado",
+  title: "Contexto usado", tab: "Contexto",
   empty: "Nenhum manifesto de contexto registrado ainda. Cada execução registra o que foi realmente enviado quando começa.",
   loading: "Carregando manifestos de contexto…",
   error: "Não foi possível carregar os manifestos de contexto. Tente novamente; nenhuma mudança é presumida como concluída.",
@@ -43,7 +43,7 @@ export const contextPortuguese: typeof contextEnglish = {
 };
 
 export const contextSpanish: typeof contextEnglish = {
-  title: "Contexto usado",
+  title: "Contexto usado", tab: "Contexto",
   empty: "Aún no se registró ningún manifiesto de contexto. Cada ejecución registra lo que se envió realmente al iniciar.",
   loading: "Cargando manifiestos de contexto…",
   error: "No se pudieron cargar los manifiestos de contexto. Reintenta; no se presume ningún cambio completado.",

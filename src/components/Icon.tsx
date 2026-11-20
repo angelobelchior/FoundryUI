@@ -227,6 +227,14 @@ export function ChevronDownIcon(props: IconProps) {
   );
 }
 
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12.2 5.8 8.2 10l4 4.2" />
+    </Svg>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -276,6 +284,19 @@ export function SlidersIcon(props: IconProps) {
       <path d="M4 6.5h12M4 13.5h12" />
       <circle cx="8" cy="6.5" r="1.9" />
       <circle cx="12.5" cy="13.5" r="1.9" />
+    </Svg>
+  );
+}
+
+export function ToolsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <g transform="translate(0.16 1.02) scale(0.784)">
+        <path
+          strokeWidth={1.9}
+          d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        />
+      </g>
     </Svg>
   );
 }

@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL DEFAULT '',
   model_alias TEXT NOT NULL,
+  model_variant_id TEXT,
   params_json TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,

@@ -73,6 +73,7 @@ async function setup(page: Page, scenario: "idle" | "pending" | "blocker" | "unc
   }, scenario);
   await page.goto("http://foundry.test/");
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await expect(page.getByRole("region", { name: "Agent execution" })).toBeVisible();
 }
 
@@ -103,6 +104,7 @@ test("pending execution restores ordered history and stops only the selected run
   await expect(panel.getByRole("listitem")).toHaveCount(2);
   await page.reload();
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await expect(panel.getByText(/no longer has a live continuation/)).toBeVisible();
   await panel.getByRole("button", { name: "Stop run", exact: true }).click();
   await expect(panel.getByRole("status")).toHaveText("Cancelled");

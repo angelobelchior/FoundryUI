@@ -41,6 +41,7 @@ pub struct Conversation {
     pub id: i64,
     pub title: String,
     pub model_alias: String,
+    pub model_variant_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub favorite: bool,
@@ -362,7 +363,7 @@ impl Database {
         let connection = self.connection();
         let mut statement = connection
             .prepare(
-                "SELECT id, title, model_alias, created_at, updated_at, favorite, archived
+                "SELECT id, title, model_alias, model_variant_id, created_at, updated_at, favorite, archived
                  FROM conversations
                  WHERE archived = ?1
                  ORDER BY favorite DESC, updated_at DESC, id DESC",
@@ -379,7 +380,7 @@ impl Database {
         let connection = self.connection();
         let conversation = connection
             .query_row(
-                "SELECT id, title, model_alias, created_at, updated_at, favorite, archived
+                "SELECT id, title, model_alias, model_variant_id, created_at, updated_at, favorite, archived
                  FROM conversations
                  WHERE id = ?1",
                 [id],
@@ -506,7 +507,9 @@ impl Database {
 
             transaction
                 .execute(
-                    "UPDATE conversations SET model_alias = ?1, updated_at = ?2 WHERE id = ?3",
+                    "UPDATE conversations
+                     SET model_alias = ?1, model_variant_id = NULL, updated_at = ?2
+                     WHERE id = ?3",
                     params![model_alias, now, id],
                 )
                 .map_err(storage)?;
@@ -517,6 +520,66 @@ impl Database {
                         status, created_at, updated_at)
                      VALUES (?1, ?2, 'divider', '', '', ?3, 'complete', ?4, ?4)",
                     params![id, seq, model_alias, now],
+                )
+                .map_err(storage)?;
+            let divider_id = transaction.last_insert_rowid();
+
+            transaction.commit().map_err(storage)?;
+
+            drop(connection);
+
+            self.message(divider_id)?
+        };
+
+        Ok(ModelChange {
+            conversation: self.conversation(id)?,
+            divider: Some(divider),
+        })
+    }
+
+    pub fn set_conversation_variant(
+        &self,
+        id: i64,
+        model_variant_id: Option<&str>,
+    ) -> FoundryResult<ModelChange> {
+        let current = self.conversation(id)?;
+        let next = model_variant_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        if current.model_variant_id == next {
+            return Ok(ModelChange {
+                conversation: current,
+                divider: None,
+            });
+        }
+
+        let now = now_millis();
+        let marker = next
+            .as_deref()
+            .map(|variant| format!("{} · {}", current.model_alias, variant))
+            .unwrap_or_else(|| current.model_alias.clone());
+        let divider = {
+            let mut connection = self.connection();
+            let transaction = connection.transaction().map_err(storage)?;
+            let seq = next_seq(&transaction, id)?;
+
+            transaction
+                .execute(
+                    "UPDATE conversations
+                     SET model_variant_id = ?1, updated_at = ?2
+                     WHERE id = ?3",
+                    params![next, now, id],
+                )
+                .map_err(storage)?;
+            transaction
+                .execute(
+                    "INSERT INTO messages
+                       (conversation_id, seq, role, content_md, reasoning_md, model_alias,
+                        status, created_at, updated_at)
+                     VALUES (?1, ?2, 'divider', '', '', ?3, 'complete', ?4, ?4)",
+                    params![id, seq, marker, now],
                 )
                 .map_err(storage)?;
             let divider_id = transaction.last_insert_rowid();
@@ -1984,10 +2047,11 @@ fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
         id: row.get(0)?,
         title: row.get(1)?,
         model_alias: row.get(2)?,
-        created_at: row.get(3)?,
-        updated_at: row.get(4)?,
-        favorite: row.get(5)?,
-        archived: row.get(6)?,
+        model_variant_id: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        favorite: row.get(6)?,
+        archived: row.get(7)?,
     })
 }
 
@@ -2693,6 +2757,54 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn switching_variants_records_a_divider_and_updates_the_conversation() {
+        let database = database();
+        let conversation = database
+            .create_conversation("qwen3-0.6b")
+            .expect("conversation");
+        let change = database
+            .set_conversation_variant(conversation.id, Some("qwen3-0.6b-generic-cpu:4"))
+            .expect("variant");
+
+        assert_eq!(
+            change.conversation.model_variant_id.as_deref(),
+            Some("qwen3-0.6b-generic-cpu:4")
+        );
+        assert!(change.divider.is_some());
+
+        let same = database
+            .set_conversation_variant(conversation.id, Some("qwen3-0.6b-generic-cpu:4"))
+            .expect("same variant");
+
+        assert!(same.divider.is_none());
+
+        let cleared = database
+            .set_conversation_variant(conversation.id, None)
+            .expect("clear");
+
+        assert!(cleared.conversation.model_variant_id.is_none());
+        assert!(cleared.divider.is_some());
+    }
+
+    #[test]
+    fn switching_models_clears_the_variant() {
+        let database = database();
+        let conversation = database
+            .create_conversation("qwen3-0.6b")
+            .expect("conversation");
+
+        database
+            .set_conversation_variant(conversation.id, Some("qwen3-0.6b-generic-cpu:4"))
+            .expect("variant");
+
+        let switched = database
+            .set_conversation_model(conversation.id, "qwen3-1.7b")
+            .expect("switch");
+
+        assert!(switched.conversation.model_variant_id.is_none());
     }
 
     #[test]

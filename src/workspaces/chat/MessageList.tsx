@@ -1,10 +1,10 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, memo, useEffect, useRef, useState, type ReactNode } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Caret } from "../../components/Caret";
 import { CopyIcon, PencilIcon, RefreshIcon } from "../../components/Icon";
 import { Spinner } from "../../components/Spinner";
 import { useToast } from "../../components/Toast";
-import { Markdown } from "../../components/markdown/Markdown";
 import { attachmentData } from "../../lib/attachments";
 import { copyText } from "../../lib/copy";
 import { cx } from "../../lib/cx";
@@ -22,6 +22,10 @@ type MessageListProps = {
   onEdit: (message: ChatMessage) => void;
   onRegenerate: () => void;
 };
+
+const Markdown = lazy(() =>
+  import("../../components/markdown/Markdown").then((module) => ({ default: module.Markdown })),
+);
 
 export function MessageList({
   messages,
@@ -164,6 +168,7 @@ const MessageBubble = memo(function MessageBubble({
   const { push } = useToast();
   const isUser = message.role === "user";
   const streaming = message.status === "streaming";
+  const waitingFirstToken = streaming && message.content === "" && message.reasoning === "";
   const numberFormat = new Intl.NumberFormat(locale);
   const errorCode = message.error?.code;
   const errorText =
@@ -195,7 +200,7 @@ const MessageBubble = memo(function MessageBubble({
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.055em] text-tertiary">
               {t("chat.reasoning")}
             </div>
-            <p className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-[1.55] text-secondary">
+            <p className="whitespace-pre-wrap break-words text-[12px] leading-[1.55] text-secondary">
               {message.reasoning}
             </p>
           </div>
@@ -206,8 +211,21 @@ const MessageBubble = memo(function MessageBubble({
               {message.content}
             </p>
           ) : (
-            <Markdown content={message.content} streaming={streaming} />
+            <Suspense
+              fallback={
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.6]">
+                  {message.content}
+                </p>
+              }
+            >
+              <Markdown content={message.content} streaming={streaming} />
+            </Suspense>
           )
+        ) : waitingFirstToken ? (
+          <div role="status" className="flex items-center gap-2 text-[12px] text-secondary">
+            <Spinner size={12} className="text-tertiary" />
+            <span>{t("chat.processingReply")}</span>
+          </div>
         ) : streaming ? (
           <Caret />
         ) : null}
@@ -344,7 +362,7 @@ function MessageParams({ params }: { params: ResolvedParams }) {
       {
         field,
         origin: resolved.origin,
-        value: Array.isArray(resolved.value) ? resolved.value.join(", ") : String(resolved.value),
+        value: formatParamValue(field, resolved.value, t),
       },
     ];
   });
@@ -378,4 +396,20 @@ function MessageParams({ params }: { params: ResolvedParams }) {
       ) : null}
     </div>
   );
+}
+
+function formatParamValue(field: (typeof paramFields)[number], value: unknown, t: TFunction) {
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  if (field === "reasoningEffort" && typeof value === "string") {
+    return t(`params.options.reasoningEffort.${value}` as never);
+  }
+
+  if (field === "responseVerbosity" && typeof value === "string") {
+    return t(`params.options.responseVerbosity.${value}` as never);
+  }
+
+  return String(value);
 }

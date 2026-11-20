@@ -275,6 +275,7 @@ mod tests {
             id: 4,
             title: "Explain FTS5".to_string(),
             model_alias: "qwen3-0.6b".to_string(),
+            model_variant_id: None,
             created_at: 1,
             updated_at: 2,
             favorite: false,

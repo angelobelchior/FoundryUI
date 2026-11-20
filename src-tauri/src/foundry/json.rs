@@ -84,6 +84,8 @@ pub struct ModelSummary {
     #[serde(default)]
     pub supports_tool_calling: bool,
     #[serde(default)]
+    pub supports_reasoning: bool,
+    #[serde(default)]
     pub source: Option<String>,
     #[serde(default)]
     pub input_modalities: Vec<String>,

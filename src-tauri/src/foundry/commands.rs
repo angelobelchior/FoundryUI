@@ -279,6 +279,17 @@ pub fn chat_set_model(
 }
 
 #[tauri::command]
+pub fn chat_set_variant(
+    state: State<'_, AppState>,
+    id: i64,
+    model_variant_id: Option<String>,
+) -> FoundryResult<ModelChange> {
+    state
+        .database()?
+        .set_conversation_variant(id, model_variant_id.as_deref())
+}
+
+#[tauri::command]
 pub fn chat_list_messages(
     state: State<'_, AppState>,
     conversation_id: i64,
@@ -493,6 +504,7 @@ struct PreparedGeneration {
     chat_params: ChatParams,
     endpoint: super::local_inference::VerifiedLocalEndpoint,
     model_id: String,
+    supports_reasoning: bool,
 }
 
 async fn prepare_generation(
@@ -505,19 +517,29 @@ async fn prepare_generation(
     let model_params = database.model_params(&conversation.model_alias)?;
     let conversation_params = database.conversation_params(conversation_id)?;
     let resolved = params::resolve(&conversation_params, &model_params, &global);
-    let chat_params = resolved.params();
     let cli = state.backend()?;
     let endpoint = state.server.verified_endpoint(&cli).await?;
     let loaded = cli.list_loaded_models().await?;
-    let model_id = loaded
+    let requested = conversation
+        .model_variant_id
+        .as_deref()
+        .unwrap_or(&conversation.model_alias);
+    let loaded_model = loaded
         .iter()
-        .find(|model| {
-            model.alias == conversation.model_alias || model.id == conversation.model_alias
-        })
-        .map(|model| model.id.clone())
+        .find(|model| model.alias == requested || model.id == requested)
         .ok_or_else(|| FoundryError::ModelNotLoaded {
-            alias: conversation.model_alias.clone(),
+            alias: requested.to_string(),
         })?;
+    let overlay = catalog::overlay()?;
+    let supported_generation_params = catalog::supported_generation_params(
+        loaded_model,
+        Some(&conversation.model_alias),
+        overlay,
+    );
+    let resolved = params::filter_supported(resolved, &supported_generation_params);
+    let chat_params = resolved.params();
+    let model_id = loaded_model.id.clone();
+    let supports_reasoning = loaded_model.supports_reasoning;
 
     Ok(PreparedGeneration {
         database,
@@ -527,6 +549,7 @@ async fn prepare_generation(
         chat_params,
         endpoint,
         model_id,
+        supports_reasoning,
     })
 }
 
@@ -593,6 +616,7 @@ fn launch_generation(
         user_message: user_message.clone(),
         assistant_message: assistant_message.clone(),
         params: Some(prepared.chat_params),
+        supports_reasoning: prepared.supports_reasoning,
         timeouts: state.server.stream_timeouts(),
         cancellation,
         _guard: guard,

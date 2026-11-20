@@ -22,7 +22,7 @@
     "label": null
   },
   "focusedControlOutline": {
-    "text": "ChatVozEmbeddingsProjetosConversasProjetosTodos os projetosField recordings — spring interviewsRecovered interview notesqwen3-0.6b18 de nov.ModelosAjustesAtalhos de tecladoRecovered interview notesAções da conversaqwen3-0.6b34 entrada · 1 saídaMover conversaField recordings — spring interviewsRevisar alterações/Volumes/Fieldwork/Interviews/2026 springPasta não encontradaLocalizar pastaO histórico continua disponível. Ações que dependem da pasta exigem uma pasta disponível.The external drive is disconnected. These saved interview notes remain available for reading while the original folder is unavailable.ConversaModeloqwen3-0.6bVarianteAutomáticaParâmetros de geração⌘+⇧+M para ditar",
+    "text": "ChatVozEmbeddingsField recordings — spring interviewsTodos os projetosRecovered interview notesqwen3-0.6b19 de nov.ModelosAjustesAtalhos de tecladoRecovered interview notesAções da conversaqwen3-0.6b34 entrada · 1 saídaMover conversaField recordings — spring interviews/Volumes/Fieldwork/Interviews/2026 springPasta não encontradaLocalizar pastaO histórico continua disponível. Ações que dependem da pasta exigem uma pasta disponível.The external drive is disconnected. These saved interview notes remain available for reading while the original folder is unavailable.ConversaModeloqwen3-0.6bVarianteAutomáticaParâmetros de geraçãoFerramentas⌘+⇧+M para ditar",
     "color": "rgb(29, 29, 31)",
     "backgroundColor": "rgb(245, 246, 250)",
     "ancestorBackgrounds": [
@@ -90,66 +90,6 @@
         "rgba(0, 0, 0, 0)"
       ],
       "fontSize": "13px",
-      "opacity": "1"
-    },
-    {
-      "text": "Conversas",
-      "color": "rgb(29, 29, 31)",
-      "backgroundColor": "rgba(120, 120, 128, 0.055)",
-      "ancestorBackgrounds": [
-        "rgba(120, 120, 128, 0.055)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)"
-      ],
-      "fontSize": "12px",
-      "opacity": "1"
-    },
-    {
-      "text": "Projetos",
-      "color": "rgb(29, 29, 31)",
-      "backgroundColor": "rgba(120, 120, 128, 0.125)",
-      "ancestorBackgrounds": [
-        "rgba(120, 120, 128, 0.125)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)"
-      ],
-      "fontSize": "12px",
-      "opacity": "1"
-    },
-    {
-      "text": "Field recordings — spring interviews",
-      "color": "rgb(29, 29, 31)",
-      "backgroundColor": "rgba(0, 0, 0, 0)",
-      "ancestorBackgrounds": [
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)",
-        "rgb(245, 246, 250)",
-        "rgba(0, 0, 0, 0)"
-      ],
-      "fontSize": "12px",
       "opacity": "1"
     },
     {
@@ -261,6 +201,28 @@
     },
     {
       "text": "Parâmetros de geração",
+      "color": "rgba(60, 60, 67, 0.62)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "ancestorBackgrounds": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "oklab(0.575332 0.00337359 -0.0116529 / 0.0356863)",
+        "rgb(255, 255, 255)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(255, 255, 255)",
+        "rgb(255, 255, 255)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)",
+        "rgb(245, 246, 250)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "fontSize": "11.5px",
+      "opacity": "1"
+    },
+    {
+      "text": "Ferramentas",
       "color": "rgba(60, 60, 67, 0.62)",
       "backgroundColor": "rgba(0, 0, 0, 0)",
       "ancestorBackgrounds": [

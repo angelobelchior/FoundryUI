@@ -44,8 +44,8 @@ async function setup(page: Page, failSave = false) {
   }, failSave);
   await page.goto("http://foundry.test/");
   await page.getByRole("button", { name: /First conversation.*qwen/ }).click();
-  await page.getByText("Reading and network", { exact: true }).click();
-  return page.getByLabel("Reading and network", { exact: true });
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
+  return page.getByRole("tabpanel", { name: "Reading and network" });
 }
 
 test("the global preference defaults on and persists across conversations and reload", async ({ page }) => {
@@ -58,13 +58,13 @@ test("the global preference defaults on and persists across conversations and re
   await expect(preference).not.toBeChecked();
   await page.screenshot({ path: "checks/wave11/read-network/global-reading-off-1440.png" });
   await page.getByRole("button", { name: /Second conversation.*qwen/ }).click();
-  await page.getByText("Reading and network", { exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await expect(preference).not.toBeChecked();
-  panel = page.getByLabel("Reading and network", { exact: true });
+  panel = page.getByRole("tabpanel", { name: "Reading and network" });
   await expect(panel.getByText("No recorded network access in this conversation.")).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: /First conversation.*qwen/ }).click();
-  await page.getByText("Reading and network", { exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await expect(preference).not.toBeChecked();
 });
 

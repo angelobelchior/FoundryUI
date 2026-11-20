@@ -13,10 +13,18 @@ type ModelMenuProps = {
   value: string;
   options: readonly ChatModelOption[];
   disabled?: boolean;
+  emphasized?: boolean;
   onChange: (value: string) => void;
 };
 
-export function ModelMenu({ label, value, options, disabled = false, onChange }: ModelMenuProps) {
+export function ModelMenu({
+  label,
+  value,
+  options,
+  disabled = false,
+  emphasized = false,
+  onChange,
+}: ModelMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -61,22 +69,36 @@ export function ModelMenu({ label, value, options, disabled = false, onChange }:
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         className={cx(
-          "inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[7px] border border-line px-2 text-[11.5px] transition-colors",
-          "text-secondary hover:border-line-strong hover:text-primary",
+          "inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-[7px] border px-2 text-[11.5px] transition-colors",
+          emphasized
+            ? "border-accent/45 bg-accent/10 text-primary hover:border-accent/70"
+            : "border-line text-secondary hover:border-line-strong hover:text-primary",
           "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-line disabled:hover:text-secondary",
         )}
       >
-        <span className="truncate font-medium">{selected?.label ?? value}</span>
+        <span
+          className={cx(
+            "shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em]",
+            emphasized ? "text-accent" : "text-tertiary",
+          )}
+        >
+          {label}
+        </span>
+        <span className="min-w-0 truncate font-medium">{selected?.label ?? value}</span>
         <ChevronDownIcon
           size={12}
-          className={cx("shrink-0 text-tertiary transition-transform duration-150", open && "rotate-180")}
+          className={cx(
+            "shrink-0 transition-transform duration-150",
+            emphasized ? "text-accent" : "text-tertiary",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open ? (
         <div
           role="menu"
           aria-label={label}
-          className="pop-in absolute right-0 top-[calc(100%+4px)] z-30 max-h-[280px] min-w-[200px] overflow-y-auto rounded-lg border border-line bg-elevated p-1 shadow-[var(--shadow-popover)]"
+          className="pop-in absolute bottom-[calc(100%+4px)] right-0 z-30 max-h-[280px] min-w-[200px] overflow-y-auto rounded-lg border border-line bg-elevated p-1 shadow-[var(--shadow-popover)]"
         >
           {options.map((option) => {
             const isSelected = option.value === value;

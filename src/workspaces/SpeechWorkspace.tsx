@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 import { ContextList } from "../components/ContextList";
 import { DetailPane } from "../components/DetailPane";
 import { EmptyState, ListEmpty } from "../components/EmptyState";
-import { ModelAccessPanel } from "../components/ModelAccessPanel";
 import { Modal } from "../components/Modal";
+import { ModelPicker } from "../components/ModelPicker";
 import { SegmentedControl } from "../components/SegmentedControl";
 import {
   AlertIcon,
@@ -78,7 +78,7 @@ import {
 import { useModelJobStream } from "../lib/useModelJobStream";
 import { ConfirmDialog } from "./models/ConfirmDialog";
 import { errorLabel } from "./models/format";
-import { FlowStepper, type FlowStep } from "./speech/FlowStepper";
+import { FlowStepper, type FlowStep } from "../components/FlowStepper";
 import { TranscriptionSummary, type SummaryField } from "./speech/TranscriptionSummary";
 
 type SpeechWorkspaceProps = {
@@ -119,7 +119,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
   const [models, setModels] = useState<CatalogModel[] | null>(null);
   const [loaded, setLoaded] = useState<LoadedModel[]>([]);
   const [selectedModelAlias, setSelectedModelAlias] = useState("");
-  const [downloadAlias, setDownloadAlias] = useState("");
   const [language, setLanguage] = useState("");
   const [temperature, setTemperature] = useState("0");
   const [permission, setPermission] = useState<MicrophonePermission>("undetermined");
@@ -173,15 +172,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
     () => speechModels.filter((model) => model.cached),
     [speechModels],
   );
-  const uncachedSpeechModels = useMemo(
-    () => speechModels.filter((model) => !model.cached),
-    [speechModels],
-  );
-  const loadedSpeechAliases = useMemo(() => new Set(loaded.map((model) => model.alias)), [loaded]);
-  const loadedSpeechModels = useMemo(
-    () => cachedSpeechModels.filter((model) => loadedSpeechAliases.has(model.alias)),
-    [cachedSpeechModels, loadedSpeechAliases],
-  );
   const cachedChatModelAliases = useMemo(
     () =>
       (models ?? [])
@@ -199,11 +189,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
     return [...loadedPreferred, ...fallback];
   }, [cachedChatModelAliases, loaded]);
-  const loadableSpeechAliases = useMemo(
-    () => cachedSpeechModels.filter((model) => !loadedSpeechAliases.has(model.alias)).map((model) => model.alias),
-    [cachedSpeechModels, loadedSpeechAliases],
-  );
-  const activeDownload = downloadAlias ? jobs[downloadAlias] : undefined;
   const elapsedMs = recordingStartedAt === null ? 0 : Math.max(0, recordingTick - recordingStartedAt);
   const audioReady = stagedAudio !== null && recordingStartedAt === null;
   const canGoStep2 = Boolean(selectedModelAlias);
@@ -285,9 +270,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
         },
       ]
     : [];
-  const missingDownloadedSpeechModels = models !== null && cachedSpeechModels.length === 0;
-  const missingLoadedSpeechModels =
-    models !== null && cachedSpeechModels.length > 0 && loadedSpeechModels.length === 0;
   const panelClass = "min-w-0 rounded-[9px] border border-line bg-canvas p-3.5 sm:p-4";
   const sectionTitleClass = "text-[11px] font-semibold uppercase tracking-[0.055em] text-tertiary";
   const hintClass = "mt-1 text-[11.5px] leading-relaxed text-secondary";
@@ -489,14 +471,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
         : (preferredChatModelAliases[0] ?? ""),
     );
   }, [preferredChatModelAliases]);
-
-  useEffect(() => {
-    setDownloadAlias((current) =>
-      uncachedSpeechModels.some((model) => model.alias === current)
-        ? current
-        : (uncachedSpeechModels[0]?.alias ?? ""),
-    );
-  }, [uncachedSpeechModels]);
 
   useEffect(() => {
     setSelectedDeviceId((current) => {
@@ -1128,13 +1102,9 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
     }
   }
 
-  async function triggerDownload() {
-    if (!downloadAlias) {
-      return;
-    }
-
+  async function downloadSpeechModelAlias(alias: string) {
     try {
-      await downloadModel(downloadAlias);
+      await downloadModel(alias);
       setBanner(null);
     } catch (error) {
       setBanner(toFoundryCommandError(error));
@@ -1443,29 +1413,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
           {showingFlow ? (
             <>
-              {missingDownloadedSpeechModels || missingLoadedSpeechModels ? (
-                <ModelAccessPanel
-                  title={
-                    missingDownloadedSpeechModels
-                      ? t("common.noDownloadedModelTitle", { kind: t("models.kinds.speech") })
-                      : t("common.noLoadedModelTitle", { kind: t("models.kinds.speech") })
-                  }
-                  body={
-                    missingDownloadedSpeechModels
-                      ? t("common.noDownloadedModelBody", { kind: t("models.kinds.speech") })
-                      : t("common.noLoadedModelBody", { kind: t("models.kinds.speech") })
-                  }
-                  listTitle={t("common.downloadedModels")}
-                  models={loadableSpeechAliases}
-                  loadLabel={t("models.actions.load")}
-                  loadingLabel={t("common.loading")}
-                  openModelsLabel={t("common.openModels")}
-                  loadingAlias={loadingModelAlias}
-                  onLoad={(alias) => void loadSpeechModelAlias(alias)}
-                  onOpenModels={() => onOpenModels?.()}
-                />
-              ) : null}
-
               <FlowStepper
                 label={t("speech.flow.stepsLabel")}
                 steps={flowSteps}
@@ -1483,24 +1430,17 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
-                      <span className={fieldLabelClass}>{t("speech.model.model")}</span>
-                      {cachedSpeechModels.length > 1 ? (
-                        <select
-                          value={selectedModelAlias}
-                          onChange={(event) => setSelectedModelAlias(event.target.value)}
-                          className={fieldClass}
-                        >
-                          {cachedSpeechModels.map((model) => (
-                            <option key={model.alias} value={model.alias}>
-                              {model.alias}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="flex h-8 items-center rounded-md border border-line bg-subtle px-2.5 text-[12px] text-primary">
-                          {selectedModelAlias || t("speech.model.noneCached")}
-                        </div>
-                      )}
+                      <ModelPicker
+                        label={t("speech.model.model")}
+                        models={speechModels}
+                        selectedAlias={selectedModelAlias}
+                        loadingAlias={loadingModelAlias}
+                        jobs={jobs}
+                        onOpenModels={onOpenModels}
+                        onUse={setSelectedModelAlias}
+                        onLoad={(alias) => void loadSpeechModelAlias(alias)}
+                        onDownload={(alias) => void downloadSpeechModelAlias(alias)}
+                      />
                     </div>
 
                     <label className="flex min-w-0 flex-col gap-1">
@@ -1541,37 +1481,6 @@ export function SpeechWorkspace({ onOpenModels, onOpenChatConversation, onLeaveG
                       </span>
                     </div>
                   </div>
-
-                  {uncachedSpeechModels.length ? (
-                    <details className="mt-4 border-t border-line pt-3">
-                      <summary className="cursor-pointer text-[11.5px] font-medium text-secondary">
-                        {t("speech.model.downloadShortcut")}
-                      </summary>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                        <select
-                          aria-label={t("speech.model.downloadShortcut")}
-                          value={downloadAlias}
-                          onChange={(event) => setDownloadAlias(event.target.value)}
-                          className={fieldClass}
-                        >
-                          {uncachedSpeechModels.map((model) => (
-                            <option key={model.alias} value={model.alias}>
-                              {model.alias}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => void triggerDownload()}
-                          disabled={!downloadAlias || activeDownload?.status === "running"}
-                          className={`${secondaryButtonClass} h-8 w-full sm:w-auto`}
-                        >
-                          {activeDownload?.status === "running" ? <Spinner size={11} /> : <DownloadIcon size={12} />}
-                          {downloadLabel(activeDownload, t)}
-                        </button>
-                      </div>
-                    </details>
-                  ) : null}
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
                     <p className="text-[10.5px] text-tertiary">
@@ -2289,22 +2198,6 @@ function languageName(code: string, locale: string, fallback: string): string {
   } catch {
     return code;
   }
-}
-
-function downloadLabel(job: ModelJob | undefined, t: any): string {
-  if (!job || job.status === "succeeded") {
-    return String(t("speech.actions.download"));
-  }
-
-  if (job.status === "running") {
-    return String(t("speech.actions.downloadingUnknown"));
-  }
-
-  if (job.status === "failed") {
-    return String(t("speech.actions.retryDownload"));
-  }
-
-  return String(t("speech.actions.download"));
 }
 
 function isLoadedChatModel(model: LoadedModel): boolean {

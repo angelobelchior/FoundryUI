@@ -8,7 +8,6 @@ type Notice = { kind: "conflict" | "undone" | "unavailable" | "noProtection" | "
 
 export function RecoveryPanel({ conversationId, onChanged }: { conversationId: number; onChanged: () => void }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [changes, setChanges] = useState<RecoverableChange[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -41,9 +40,8 @@ export function RecoveryPanel({ conversationId, onChanged }: { conversationId: n
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void refresh();
-  }, [open, refresh]);
+  }, [refresh]);
 
   async function undo(change: RecoverableChange, confirmedDestructive: boolean) {
     if (undoing !== null) return;
@@ -88,9 +86,8 @@ export function RecoveryPanel({ conversationId, onChanged }: { conversationId: n
     groups.set(runId, existing);
   }
 
-  return <details className="mt-2" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className={`cursor-pointer ${projectControlFocus}`}>{t("recovery.title")}</summary>
-    {open ? <div className="mt-2 max-h-96 space-y-4 overflow-y-auto border-t border-line pt-3 text-[14px] [&_p]:max-w-[75ch]" aria-label={t("recovery.title")}>
+  return <>
+    <div className="space-y-4 text-[14px] [&_p]:max-w-[75ch]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button type="button" className={button} onClick={() => void refresh()}>{t("recovery.refresh")}</button>
         {loading ? <span role="status">{t("recovery.loading")}</span> : null}
@@ -116,7 +113,7 @@ export function RecoveryPanel({ conversationId, onChanged }: { conversationId: n
         </ul>
       </div>)}
       {notice ? <p role="status" className="mt-2">{noticeLabels[notice.kind]}</p> : null}
-    </div> : null}
+    </div>
     <Modal open={confirming !== null} title={t("recovery.confirmTitle")} onClose={() => { if (undoing === null) setConfirming(null); }}>
       <p className="text-[14px] leading-relaxed text-primary">{t("recovery.confirmDestructive")}</p>
       <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -128,5 +125,5 @@ export function RecoveryPanel({ conversationId, onChanged }: { conversationId: n
         }}>{t("recovery.confirm")}</button>
       </div>
     </Modal>
-  </details>;
+  </>;
 }

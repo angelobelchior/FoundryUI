@@ -41,6 +41,16 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         cached: !onboarding,
         loaded: !onboarding,
         supportsToolCalling: true,
+        supportsReasoning: true,
+        supportedGenerationParams: [
+          "reasoningEffort",
+          "responseVerbosity",
+          "temperature",
+          "topP",
+          "maxTokens",
+          "seed",
+          "stop",
+        ],
         license: "MIT",
         publisher: "Microsoft",
         inputModalities: { value: ["text"], origin: "curated", source: "smoke" },
@@ -49,7 +59,24 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         embeddingDimensions: { value: null, origin: "notDeclared", source: null },
         quantization: { value: "q4", origin: "curated", source: "smoke" },
         overlaySource: "smoke",
-        variants: [],
+        variants: [
+          {
+            id: "qwen3-0.6b-cpu:4",
+            displayName: "CPU (4 threads)",
+            device: "cpu",
+            executionProvider: "CPUExecutionProvider",
+            fileSizeMb: 529,
+            cached: !onboarding,
+          },
+          {
+            id: "qwen3-0.6b-gpu:1",
+            displayName: "GPU (Metal)",
+            device: "gpu",
+            executionProvider: "CoreMLExecutionProvider",
+            fileSizeMb: 529,
+            cached: !onboarding,
+          },
+        ],
       },
       {
         alias: "phi-4-mini",
@@ -63,6 +90,16 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         cached: onboarding ? false : true,
         loaded: false,
         supportsToolCalling: true,
+        supportsReasoning: true,
+        supportedGenerationParams: [
+          "reasoningEffort",
+          "responseVerbosity",
+          "temperature",
+          "topP",
+          "maxTokens",
+          "seed",
+          "stop",
+        ],
         license: "MIT",
         publisher: "Microsoft",
         inputModalities: { value: ["text"], origin: "curated", source: "smoke" },
@@ -85,6 +122,8 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         cached: !onboarding,
         loaded: !onboarding,
         supportsToolCalling: false,
+        supportsReasoning: false,
+        supportedGenerationParams: [],
         license: "MIT",
         publisher: "OpenAI",
         inputModalities: { value: ["audio"], origin: "curated", source: "smoke" },
@@ -107,6 +146,8 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         cached: !onboarding,
         loaded: !onboarding,
         supportsToolCalling: false,
+        supportsReasoning: false,
+        supportedGenerationParams: [],
         license: "MIT",
         publisher: "Microsoft",
         inputModalities: { value: ["text"], origin: "curated", source: "smoke" },
@@ -142,6 +183,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         id: number;
         title: string;
         modelAlias: string;
+        modelVariantId: string | null;
         createdAt: number;
         updatedAt: number;
         favorite: boolean;
@@ -151,14 +193,14 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         id: number;
         conversationId: number;
         seq: number;
-        role: "user" | "assistant";
+        role: "user" | "assistant" | "divider";
         content: string;
         reasoning: string;
         modelAlias: string | null;
         params: null;
         usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null;
         error: null;
-        status: "complete" | "streaming";
+        status: "complete" | "streaming" | "cancelled" | "error" | "interrupted";
         attachments: [];
         createdAt: number;
         updatedAt: number;
@@ -264,15 +306,30 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
     function loadedSummary() {
       const loaded = state.models
         .filter((model) => model.loaded)
-        .map((model) => ({
-          alias: model.alias,
-          id: model.id,
-          displayName: model.displayName,
-          modelType: model.modelType,
-          device: model.device,
-          fileSizeMb: model.fileSizeMb,
-          loadedSince: now - 10_000,
-        }));
+        .flatMap((model) => {
+          const base = {
+            alias: model.alias,
+            id: model.id,
+            displayName: model.displayName,
+            modelType: model.modelType,
+            device: model.device,
+            fileSizeMb: model.fileSizeMb,
+            loadedSince: now - 10_000,
+          };
+          const variants = model.variants
+            .filter((variant) => variant.cached)
+            .map((variant) => ({
+              alias: variant.id,
+              id: variant.id,
+              displayName: variant.displayName,
+              modelType: model.modelType,
+              device: variant.device,
+              fileSizeMb: variant.fileSizeMb,
+              loadedSince: now - 10_000,
+            }));
+
+          return [base, ...variants];
+        });
 
       return {
         models: loaded,
@@ -305,6 +362,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
         id: state.nextConversationId,
         title: "",
         modelAlias,
+        modelVariantId: null as string | null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         favorite: false,
@@ -347,6 +405,32 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
       }
     }
 
+    function appendDivider(conversationId: number, modelAlias: string) {
+      const previous = state.messages[conversationId] ?? [];
+      const nextSeq = previous.length ? (previous[previous.length - 1]?.seq ?? 0) + 1 : 1;
+      const divider = {
+        id: state.nextMessageId,
+        conversationId,
+        seq: nextSeq,
+        role: "divider" as const,
+        content: "",
+        reasoning: "",
+        modelAlias,
+        params: null,
+        usage: null,
+        error: null,
+        status: "complete" as const,
+        attachments: [] as [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      state.nextMessageId += 1;
+      state.messages[conversationId] = [...previous, divider];
+
+      return divider;
+    }
+
     function normalizeConversations() {
       state.conversations.sort(
         (left, right) =>
@@ -354,6 +438,20 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
           right.updatedAt - left.updatedAt ||
           right.id - left.id,
       );
+    }
+
+    function findModelByAlias(alias: string) {
+      return state.models.find((model) => model.alias === alias) ?? null;
+    }
+
+    function findModelByVariantId(variantId: string) {
+      for (const model of state.models) {
+        if (model.variants.some((variant) => variant.id === variantId)) {
+          return model;
+        }
+      }
+
+      return null;
     }
 
     function updateCorpus(corpusId: number, updater: (current: (typeof state.corpora)[number]) => void) {
@@ -502,6 +600,26 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
           context.projectId = payload.projectId === null ? null : Number(payload.projectId);
           return deepClone({ conversation, context });
         }
+        if (command === "agent_execution_status") {
+          return {
+            conversationId: Number(payload.conversationId),
+            mode: "review",
+            contextRevision: 1,
+            authorizationRevision: 1,
+            modeRevision: 1,
+            execution: null,
+            blocker: null,
+            blockerTitle: null,
+            pendingRequests: [],
+            continuationAvailable: false,
+          };
+        }
+        if (command === "agent_execution_mode") {
+          return null;
+        }
+        if (command === "agent_run_start" || command === "agent_run_cancel") {
+          return null;
+        }
         if (command === "cli_detect") {
           return {
             path: "/opt/homebrew/bin/foundry",
@@ -602,7 +720,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
 
         if (command === "model_load") {
           const alias = String(payload.alias ?? "");
-          const model = state.models.find((entry) => entry.alias === alias);
+          const model = findModelByAlias(alias) ?? findModelByVariantId(alias);
 
           if (!model || !model.cached) {
             throw {
@@ -619,7 +737,7 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
 
         if (command === "model_unload") {
           const alias = String(payload.alias ?? "");
-          const model = state.models.find((entry) => entry.alias === alias);
+          const model = findModelByAlias(alias) ?? findModelByVariantId(alias);
 
           if (model) {
             model.loaded = false;
@@ -711,6 +829,79 @@ export async function installFoundryMock(page: Page, options: InstallMockOptions
           conversation.updatedAt = Date.now();
 
           return deepClone(conversation);
+        }
+
+        if (command === "chat_set_model") {
+          const id = Number(payload.id);
+          const modelAlias = String(payload.modelAlias ?? "").trim();
+          const conversation = findConversation(id);
+
+          if (!conversation) {
+            throw {
+              code: "CommandFailed",
+              messageKey: "errors.CommandFailed",
+              message: `Conversation ${id} not found`,
+              detail: null,
+            };
+          }
+
+          if (!modelAlias || conversation.modelAlias === modelAlias) {
+            return {
+              conversation: deepClone(conversation),
+              divider: null,
+            };
+          }
+
+          conversation.modelAlias = modelAlias;
+          conversation.modelVariantId = null;
+          conversation.updatedAt = Date.now();
+          normalizeConversations();
+
+          const divider = appendDivider(conversation.id, modelAlias);
+
+          return {
+            conversation: deepClone(conversation),
+            divider: deepClone(divider),
+          };
+        }
+
+        if (command === "chat_set_variant") {
+          const id = Number(payload.id);
+          const incoming = payload.modelVariantId;
+          const modelVariantId = typeof incoming === "string" && incoming.trim()
+            ? incoming.trim()
+            : null;
+          const conversation = findConversation(id);
+
+          if (!conversation) {
+            throw {
+              code: "CommandFailed",
+              messageKey: "errors.CommandFailed",
+              message: `Conversation ${id} not found`,
+              detail: null,
+            };
+          }
+
+          if (conversation.modelVariantId === modelVariantId) {
+            return {
+              conversation: deepClone(conversation),
+              divider: null,
+            };
+          }
+
+          conversation.modelVariantId = modelVariantId;
+          conversation.updatedAt = Date.now();
+          normalizeConversations();
+
+          const marker = modelVariantId
+            ? `${conversation.modelAlias} · ${modelVariantId}`
+            : conversation.modelAlias;
+          const divider = appendDivider(conversation.id, marker);
+
+          return {
+            conversation: deepClone(conversation),
+            divider: deepClone(divider),
+          };
         }
 
         if (command === "chat_list_messages") {

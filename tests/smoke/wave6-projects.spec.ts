@@ -17,7 +17,7 @@ test(`a delayed relocation cannot refresh ${revisitSource ? "a revisited source 
   await deferProjectReply(page, "projects_pick_relocate", 21, 1, "id");
   await page.getByRole("button", { name: "Locate folder", exact: true }).click();
   await expect.poll(() => projectReplyEntered(page)).toBe(true);
-  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  await page.getByRole("button", { name: "All projects", exact: true }).click();
   await page.getByRole("button", { name: /Design.*Users/ }).click();
   await expect(page.getByRole("heading", { name: "Design notes", level: 1 })).toBeVisible();
   if (revisitSource) {
@@ -58,6 +58,7 @@ for (const [action, command] of [["Favorite", "chat_set_conversation_favorite"],
     await page.getByRole("button", { name: /Source notes.*qwen/ }).click({ button: "right" });
     await page.getByRole("menuitem", { name: action, exact: true }).click();
     await expect.poll(() => projectReplyEntered(page)).toBe(true);
+    await page.getByRole("button", { name: "All projects", exact: true }).click();
     await page.getByRole("button", { name: "Conversations", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Independent conversation", level: 1 })).toBeVisible();
     await releaseProjectReply(page);
@@ -220,6 +221,7 @@ test("a delayed conversation creation cannot leak into a later navigation scope"
   await deferProjectReply(page, "projects_create_conversation", 21);
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await expect.poll(() => projectReplyEntered(page)).toBe(true);
+  await page.getByRole("button", { name: "All projects", exact: true }).click();
   await page.getByRole("button", { name: "Conversations", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Independent conversation", level: 1 })).toBeVisible();
   await releaseProjectReply(page);
@@ -375,7 +377,7 @@ test("critical project context and dialog instructions retain readable contrast"
     expect.soft((await visualContrast(locator)).contrast).toBeGreaterThanOrEqual(4.5);
   }
   await page.getByRole("button", { name: /Research.*Users/ }).click();
-  for (const locator of [page.getByLabel("Project folder"), page.getByText("Review changes", { exact: true }), page.getByText("Folder not found", { exact: true }), page.getByRole("button", { name: "Locate folder", exact: true }), page.getByText("History remains available. Folder-dependent actions require an available folder.", { exact: true })]) {
+  for (const locator of [page.getByLabel("Project folder"), page.getByText("Folder not found", { exact: true }), page.getByRole("button", { name: "Locate folder", exact: true }), page.getByText("History remains available. Folder-dependent actions require an available folder.", { exact: true })]) {
     expect.soft((await visualContrast(locator)).contrast).toBeGreaterThanOrEqual(4.5);
   }
   await page.getByRole("button", { name: "Rename project", exact: true }).click();
@@ -703,8 +705,10 @@ test("new and duplicate folders open their scoped conversations without mixing h
   await expect(page.getByText("Project history remains readable", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Project folder")).toHaveText("/Users/demo/Research");
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
-  await expect(page.getByText("Review changes", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Changes" })).toHaveValue("review");
   await expect(page.getByRole("heading", { name: "Untitled conversation", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "All projects", exact: true }).click();
   await page.getByRole("button", { name: "Conversations", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Independent conversation" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Research notes/ })).toHaveCount(0);

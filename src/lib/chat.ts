@@ -19,6 +19,7 @@ export type Conversation = {
   id: number;
   title: string;
   modelAlias: string;
+  modelVariantId: string | null;
   createdAt: number;
   updatedAt: number;
   favorite: boolean;
@@ -77,6 +78,8 @@ export type ChatParams = {
   frequencyPenalty?: number | null | undefined;
   seed?: number | null | undefined;
   stop?: string[] | null | undefined;
+  reasoningEffort?: "low" | "medium" | "high" | null | undefined;
+  responseVerbosity?: "short" | "balanced" | "detailed" | null | undefined;
 };
 
 export type StreamEvent =
@@ -193,6 +196,13 @@ export async function setConversationFavorite(
 
 export async function setConversationModel(id: number, modelAlias: string): Promise<ModelChange> {
   return invoke("chat_set_model", { id, modelAlias });
+}
+
+export async function setConversationVariant(
+  id: number,
+  modelVariantId: string | null,
+): Promise<ModelChange> {
+  return invoke("chat_set_variant", { id, modelVariantId });
 }
 
 export async function listMessages(

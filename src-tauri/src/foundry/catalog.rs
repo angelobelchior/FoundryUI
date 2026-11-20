@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
+use super::chat::GenerationParam;
 use super::error::{FoundryError, FoundryResult};
 use super::json::{ModelSummary, ModelVariant};
 
@@ -74,6 +75,8 @@ pub struct OverlayEntry {
     pub embedding_dimensions: Option<u32>,
     #[serde(default)]
     pub quantization: Option<String>,
+    #[serde(default)]
+    pub generation_params: Option<Vec<GenerationParam>>,
     pub source: String,
 }
 
@@ -93,6 +96,7 @@ pub struct CatalogModel {
     pub cached: bool,
     pub loaded: bool,
     pub supports_tool_calling: bool,
+    pub supports_reasoning: bool,
     pub license: Option<String>,
     pub publisher: Option<String>,
     pub input_modalities: Declared<Vec<String>>,
@@ -101,6 +105,7 @@ pub struct CatalogModel {
     pub embedding_dimensions: Declared<u32>,
     pub quantization: Declared<String>,
     pub overlay_source: Option<String>,
+    pub supported_generation_params: Vec<GenerationParam>,
     pub variants: Vec<ModelVariant>,
 }
 
@@ -131,7 +136,7 @@ pub fn merge_all(
 }
 
 pub fn merge(model: ModelSummary, loaded: &HashSet<String>, overlay: &Overlay) -> CatalogModel {
-    let entry = overlay.get(&model.alias);
+    let entry = overlay_entry(overlay, &model, None);
     let source = entry.map(|entry| entry.source.as_str());
 
     let input_modalities = if model.input_modalities.is_empty() {
@@ -150,6 +155,13 @@ pub fn merge(model: ModelSummary, loaded: &HashSet<String>, overlay: &Overlay) -
     let embedding_dimensions = declared(entry.and_then(|entry| entry.embedding_dimensions), source);
     let quantization = declared(entry.and_then(|entry| entry.quantization.clone()), source);
 
+    let kind = classify(
+        &input_modalities,
+        &output_modalities,
+        model.model_type.as_deref(),
+    );
+    let supported_generation_params =
+        pick_supported_generation_params(entry, kind, model.supports_reasoning);
     let is_loaded = (!model.alias.is_empty() && loaded.contains(&model.alias))
         || (!model.id.is_empty() && loaded.contains(&model.id));
     let overlay_declares_data = entry.is_some_and(|entry| {
@@ -159,6 +171,7 @@ pub fn merge(model: ModelSummary, loaded: &HashSet<String>, overlay: &Overlay) -
             || entry.embedding_dimensions.is_some()
             || entry.quantization.is_some()
             || entry.family.is_some()
+            || entry.generation_params.is_some()
     });
 
     CatalogModel {
@@ -166,17 +179,14 @@ pub fn merge(model: ModelSummary, loaded: &HashSet<String>, overlay: &Overlay) -
         id: model.id,
         display_name: model.display_name,
         family: entry.and_then(|entry| entry.family.clone()),
-        kind: classify(
-            &input_modalities,
-            &output_modalities,
-            model.model_type.as_deref(),
-        ),
+        kind,
         model_type: model.model_type,
         device: model.device,
         file_size_mb: model.file_size_mb,
         cached: model.cached,
         loaded: is_loaded,
         supports_tool_calling: model.supports_tool_calling,
+        supports_reasoning: model.supports_reasoning,
         license: model.license,
         publisher: model.publisher,
         input_modalities,
@@ -189,8 +199,69 @@ pub fn merge(model: ModelSummary, loaded: &HashSet<String>, overlay: &Overlay) -
         } else {
             None
         },
+        supported_generation_params,
         variants: model.variants,
     }
+}
+
+pub fn supported_generation_params(
+    model: &ModelSummary,
+    preferred_alias: Option<&str>,
+    overlay: &Overlay,
+) -> Vec<GenerationParam> {
+    let entry = overlay_entry(overlay, model, preferred_alias);
+    let source = entry.map(|item| item.source.as_str());
+    let input_modalities = if model.input_modalities.is_empty() {
+        declared(entry.and_then(|item| item.input_modalities.clone()), source)
+    } else {
+        Declared::live(model.input_modalities.clone())
+    };
+    let output_modalities = declared(
+        entry.and_then(|item| item.output_modalities.clone()),
+        source,
+    );
+    let kind = classify(
+        &input_modalities,
+        &output_modalities,
+        model.model_type.as_deref(),
+    );
+
+    pick_supported_generation_params(entry, kind, model.supports_reasoning)
+}
+
+fn overlay_entry<'a>(
+    overlay: &'a Overlay,
+    model: &ModelSummary,
+    preferred_alias: Option<&str>,
+) -> Option<&'a OverlayEntry> {
+    preferred_alias
+        .and_then(|alias| overlay.get(alias))
+        .or_else(|| overlay.get(&model.alias))
+        .or_else(|| overlay.get(&model.id))
+}
+
+fn pick_supported_generation_params(
+    entry: Option<&OverlayEntry>,
+    kind: ModelKind,
+    supports_reasoning: bool,
+) -> Vec<GenerationParam> {
+    entry
+        .and_then(|item| item.generation_params.clone())
+        .unwrap_or_else(|| default_supported_generation_params(kind, supports_reasoning))
+}
+
+fn default_supported_generation_params(
+    kind: ModelKind,
+    supports_reasoning: bool,
+) -> Vec<GenerationParam> {
+    if kind != ModelKind::Chat && kind != ModelKind::Multimodal {
+        return Vec::new();
+    }
+
+    GenerationParam::ALL
+        .into_iter()
+        .filter(|field| *field != GenerationParam::ReasoningEffort || supports_reasoning)
+        .collect()
 }
 
 fn declared<T>(value: Option<T>, source: Option<&str>) -> Declared<T> {
@@ -407,5 +478,54 @@ mod tests {
         assert_eq!(merged.context_length.value, None);
         assert_eq!(merged.context_length.origin, Origin::NotDeclared);
         assert_eq!(merged.embedding_dimensions.origin, Origin::NotDeclared);
+    }
+
+    #[test]
+    fn default_supported_generation_parameters_follow_model_capabilities() {
+        let mut model = summary("qwen3-0.6b");
+
+        model.supports_reasoning = false;
+
+        let merged = merge(model.clone(), &HashSet::new(), &overlay());
+
+        assert!(
+            !merged
+                .supported_generation_params
+                .contains(&GenerationParam::ReasoningEffort)
+        );
+
+        model.supports_reasoning = true;
+
+        let merged = merge(model, &HashSet::new(), &overlay());
+
+        assert!(
+            merged
+                .supported_generation_params
+                .contains(&GenerationParam::ReasoningEffort)
+        );
+    }
+
+    #[test]
+    fn overlay_can_override_supported_generation_parameters() {
+        let mut model = summary("custom-model");
+
+        model.supports_reasoning = true;
+
+        let custom = parse_overlay(
+            r#"
+[custom-model]
+source = "test"
+input_modalities = ["text"]
+output_modalities = ["text"]
+generation_params = ["temperature", "maxTokens"]
+"#,
+        )
+        .expect("custom overlay");
+        let merged = merge(model, &HashSet::new(), &custom);
+
+        assert_eq!(
+            merged.supported_generation_params,
+            vec![GenerationParam::Temperature, GenerationParam::MaxTokens]
+        );
     }
 }

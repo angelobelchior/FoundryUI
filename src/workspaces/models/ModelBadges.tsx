@@ -119,6 +119,7 @@ export function OriginMark({ declared }: { declared: Declared<unknown> }) {
 
   return (
     <Tooltip
+      title={t("models.curatedSourceTitle")}
       label={t("models.curatedSource", {
         source: declared.source ?? t("models.curatedUnknownSource"),
       })}
