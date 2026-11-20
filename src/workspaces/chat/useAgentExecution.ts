@@ -5,7 +5,6 @@ import { authorizationApi, type AuthorizationDecision } from "../../lib/authoriz
 
 export function useAgentExecution(conversationId: number | null, onMessagesChanged: (id: number) => void) {
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
-  const [enabled, setEnabled] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
@@ -33,7 +32,6 @@ export function useAgentExecution(conversationId: number | null, onMessagesChang
 
   useEffect(() => {
     setStatus(null);
-    setEnabled(false);
     setStarting(false);
     setStopping(false);
     setChangingMode(false);
@@ -132,5 +130,5 @@ export function useAgentExecution(conversationId: number | null, onMessagesChang
     }
   }
 
-  return { status: visibleStatus, enabled, setEnabled, busy, stopping, changingMode, deciding, error: error || actionError, refresh, retry, start, cancel, mode, decide };
+  return { status: visibleStatus, busy, stopping, changingMode, deciding, error: error || actionError, refresh, retry, start, cancel, mode, decide };
 }

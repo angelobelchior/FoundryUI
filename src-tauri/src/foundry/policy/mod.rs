@@ -4,6 +4,21 @@ pub use crate::foundry::db::agent::AgentMode;
 pub use types::*;
 
 pub fn evaluate(action: &Action, facts: &TrustedFacts) -> Decision {
+    let categories = CategoryPermissions {
+        read_auto: facts.global_read_allowed,
+        edit_auto: facts.mode == AgentMode::Automatic
+            && facts.mode_at_proposal == AgentMode::Automatic,
+        command_auto: false,
+        network_auto: false,
+    };
+    evaluate_with(action, facts, categories)
+}
+
+pub fn evaluate_with(
+    action: &Action,
+    facts: &TrustedFacts,
+    categories: CategoryPermissions,
+) -> Decision {
     if action.key != facts.current_key {
         return Decision::Deny(Denial::StaleContext);
     }
@@ -79,7 +94,7 @@ pub fn evaluate(action: &Action, facts: &TrustedFacts) -> Decision {
         }
         _ => return Decision::Deny(Denial::ReadEvidenceUnproven),
     };
-    if reads_resources && !facts.global_read_allowed {
+    if reads_resources && (!facts.global_read_allowed || !categories.read_auto) {
         return Decision::Deny(Denial::ReadRestricted);
     }
     if matches!(action.operation, Operation::Command { .. }) && !process_isolation {
@@ -112,9 +127,7 @@ pub fn evaluate(action: &Action, facts: &TrustedFacts) -> Decision {
             action.operation,
             Operation::File(FileOperation::Create | FileOperation::Edit)
         );
-    let review = if alteration
-        && (facts.mode == AgentMode::Review || facts.mode_at_proposal == AgentMode::Review)
-    {
+    let review = if alteration && !categories.edit_auto {
         match &facts.concrete_change_id {
             Some(change_id) if !change_id.is_empty() => Some(change_id.clone()),
             _ => return Decision::Deny(Denial::ConcreteReviewMissing),
@@ -123,7 +136,7 @@ pub fn evaluate(action: &Action, facts: &TrustedFacts) -> Decision {
         None
     };
     let mut prompts = Vec::new();
-    if matches!(action.operation, Operation::Command { .. }) {
+    if !categories.command_auto && matches!(action.operation, Operation::Command { .. }) {
         require(
             action,
             facts,
@@ -176,6 +189,9 @@ pub fn evaluate(action: &Action, facts: &TrustedFacts) -> Decision {
         );
     }
     for destination in destinations {
+        if categories.network_auto {
+            break;
+        }
         require(
             action,
             facts,

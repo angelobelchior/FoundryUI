@@ -304,6 +304,12 @@ fn validate_fingerprint(value: &str) -> AgentStoreResult<()> {
     Ok(())
 }
 
+fn has_disallowed_control(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+}
+
 fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
     match fact {
         ContextFact::PermissionGrant {
@@ -391,7 +397,7 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
             diff_truncated,
             resource_keys,
         } => {
-            if !matches!(operation.as_str(), "create" | "edit" | "delete")
+            if !matches!(operation.as_str(), "create" | "edit" | "delete" | "command")
                 || path.is_empty()
                 || path.len() > 4096
                 || path.chars().any(char::is_control)
@@ -450,8 +456,8 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
                 || stdout.len() > 131_072
                 || stderr.len() > 131_072
                 || files.len() > 256
-                || stdout.chars().any(char::is_control)
-                || stderr.chars().any(char::is_control)
+                || has_disallowed_control(&stdout)
+                || has_disallowed_control(&stderr)
             {
                 return Err(AgentStoreError::InvalidInput);
             }
@@ -461,7 +467,7 @@ fn normalize(fact: &ContextFact) -> AgentStoreResult<ContextFact> {
                     || file.path.len() > 4096
                     || file.path.chars().any(char::is_control)
                     || file.content.len() > 1_048_576
-                    || file.content.chars().any(char::is_control)
+                    || has_disallowed_control(&file.content)
                 {
                     return Err(AgentStoreError::InvalidInput);
                 }

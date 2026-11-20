@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextKey {
     pub user_id: String,
@@ -171,6 +173,26 @@ pub enum GrantKind {
 pub struct ConversationGrant {
     pub context: ContextKey,
     pub kind: GrantKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CategoryPermissions {
+    pub read_auto: bool,
+    pub edit_auto: bool,
+    pub command_auto: bool,
+    pub network_auto: bool,
+}
+
+impl CategoryPermissions {
+    pub fn review_only() -> Self {
+        Self {
+            read_auto: false,
+            edit_auto: false,
+            command_auto: false,
+            network_auto: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

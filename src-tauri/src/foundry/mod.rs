@@ -34,6 +34,7 @@ pub mod resources;
 pub mod server;
 pub mod snapshot_commands;
 pub mod speech;
+pub mod terminal_commands;
 pub mod vectorize;
 
 pub use app::AppState;

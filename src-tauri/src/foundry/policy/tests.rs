@@ -1085,3 +1085,107 @@ fn zero_context_revision_is_not_a_valid_backend_context() {
         Decision::Deny(Denial::InvalidAction)
     );
 }
+
+fn all_auto() -> CategoryPermissions {
+    CategoryPermissions {
+        read_auto: true,
+        edit_auto: true,
+        command_auto: true,
+        network_auto: true,
+    }
+}
+
+#[test]
+fn category_toggles_auto_allows_without_prompt_and_review_asks() {
+    let review = CategoryPermissions {
+        read_auto: true,
+        edit_auto: false,
+        command_auto: false,
+        network_auto: false,
+    };
+
+    let (action, facts) = command_fixture();
+    assert_eq!(
+        evaluate_with(&action, &facts, review),
+        ask(Requirement::Operation, Remember::Conversation)
+    );
+    assert_eq!(evaluate_with(&action, &facts, all_auto()), Decision::Allow);
+
+    let (mut edit, mut edit_facts) = fixture();
+    edit.operation = Operation::File(FileOperation::Edit);
+    edit_facts.action = edit.clone();
+    edit_facts.concrete_change_id = Some("edit-diff".into());
+    assert_eq!(
+        evaluate_with(&edit, &edit_facts, review),
+        ask(
+            Requirement::AlterationReview {
+                change_id: "edit-diff".into()
+            },
+            Remember::Never
+        )
+    );
+    assert_eq!(evaluate_with(&edit, &edit_facts, all_auto()), Decision::Allow);
+
+    let (mut network, mut network_facts) = fixture();
+    network.operation = Operation::Network {
+        method: "GET".into(),
+        destination: "https://example.test/a".into(),
+    };
+    network.resources.clear();
+    network_facts.action = network.clone();
+    network_facts.resources.clear();
+    network_facts.read_evidence = ReadEvidence::ProvenNoReads;
+    prove(
+        &mut network_facts,
+        Effects::ReadOnly,
+        false,
+        NetworkControl::Controlled {
+            destinations: vec!["https://example.test/a".into()],
+            audit_ready: true,
+        },
+    );
+    let destination = Requirement::NetworkDestination {
+        destination: "https://example.test/a".into(),
+    };
+    assert_eq!(
+        evaluate_with(&network, &network_facts, review),
+        ask(destination, Remember::Conversation)
+    );
+    assert_eq!(
+        evaluate_with(&network, &network_facts, all_auto()),
+        Decision::Allow
+    );
+}
+
+#[test]
+fn read_category_auto_allows_and_review_restricts() {
+    let (action, facts) = fixture();
+    assert_eq!(
+        evaluate_with(&action, &facts, CategoryPermissions::review_only()),
+        Decision::Deny(Denial::ReadRestricted)
+    );
+    assert_eq!(evaluate_with(&action, &facts, all_auto()), Decision::Allow);
+}
+
+#[test]
+fn destructive_confirmation_is_mandatory_even_when_all_categories_are_auto() {
+    let (mut action, mut facts) = fixture();
+    action.operation = Operation::File(FileOperation::Delete);
+    facts.action = action.clone();
+    facts.concrete_change_id = Some("delete-diff".into());
+    prove(
+        &mut facts,
+        Effects::Destructive,
+        false,
+        NetworkControl::Disabled,
+    );
+    assert_eq!(
+        evaluate_with(&action, &facts, all_auto()),
+        ask(
+            Requirement::DestructiveConfirmation {
+                recovery: Recovery::NotGuaranteed
+            },
+            Remember::Never
+        )
+    );
+}

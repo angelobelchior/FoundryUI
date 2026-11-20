@@ -16,7 +16,9 @@ pub use super::project_selection::ProjectFolderSelectionView;
 use super::project_selection::{
     begin_selected_project, confirm_selected_project, discard_selected_project,
 };
-use super::resources::{ResourceError, ResourceErrorKind, RootHandle};
+use super::resources::{
+    DirectoryEntry, DirectoryEntryKind, RelativePath, ResourceError, ResourceErrorKind, RootHandle,
+};
 
 pub type ProjectCommandResult<T> = Result<T, ProjectCommandError>;
 
@@ -347,6 +349,303 @@ pub async fn projects_pick_create(
     }
 }
 
+pub fn list_project_entries(
+    database: &Database,
+    project_id: i64,
+    path: Option<&str>,
+) -> ProjectCommandResult<Vec<DirectoryEntry>> {
+    let root = database.agent_store().open_project_root(project_id)?;
+    let relative = match path.map(str::trim) {
+        None | Some("") => None,
+        Some(value) => Some(RelativePath::parse(value)?),
+    };
+    let mut entries = root.list_directory(relative.as_ref())?;
+    entries.sort_by(|left, right| {
+        let rank = |entry: &DirectoryEntry| match entry.kind {
+            DirectoryEntryKind::Directory => 0,
+            DirectoryEntryKind::File => 1,
+            DirectoryEntryKind::Symlink => 2,
+            DirectoryEntryKind::Other => 3,
+        };
+        rank(left)
+            .cmp(&rank(right))
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    Ok(entries)
+}
+
+#[tauri::command]
+pub fn projects_list_entries(
+    state: State<'_, AppState>,
+    project_id: i64,
+    path: Option<String>,
+) -> ProjectCommandResult<Vec<DirectoryEntry>> {
+    let database = project_database(&state)?;
+    list_project_entries(&database, project_id, path.as_deref())
+}
+
+const MAX_FILE_READ_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFileView {
+    pub path: String,
+    pub content: String,
+    pub truncated: bool,
+}
+
+pub fn read_project_file(
+    database: &Database,
+    project_id: i64,
+    path: &str,
+) -> ProjectCommandResult<ProjectFileView> {
+    let root = database.agent_store().open_project_root(project_id)?;
+    let relative = RelativePath::parse(path)?;
+    let bytes = root.read(&relative, MAX_FILE_READ_BYTES)?;
+    let truncated = bytes.len() >= MAX_FILE_READ_BYTES;
+    let content = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(ProjectFileView {
+        path: relative.as_path().to_string_lossy().into_owned(),
+        content,
+        truncated,
+    })
+}
+
+pub fn write_project_file(
+    database: &Database,
+    project_id: i64,
+    path: &str,
+    content: &str,
+) -> ProjectCommandResult<ProjectFileView> {
+    let root = database.agent_store().open_project_root(project_id)?;
+    let relative = RelativePath::parse(path)?;
+    let bytes = content.as_bytes();
+    match root.open_read(&relative) {
+        Ok(_) => root.rewrite(&relative, bytes)?,
+        Err(error) if error.is_missing() => root.create_new(&relative, bytes)?,
+        Err(error) => return Err(error.into()),
+    }
+    Ok(ProjectFileView {
+        path: relative.as_path().to_string_lossy().into_owned(),
+        content: content.to_string(),
+        truncated: false,
+    })
+}
+
+#[tauri::command]
+pub fn projects_file_read(
+    state: State<'_, AppState>,
+    project_id: i64,
+    path: String,
+) -> ProjectCommandResult<ProjectFileView> {
+    let database = project_database(&state)?;
+    read_project_file(&database, project_id, path.trim())
+}
+
+#[tauri::command]
+pub fn projects_file_write(
+    state: State<'_, AppState>,
+    project_id: i64,
+    path: String,
+    content: String,
+) -> ProjectCommandResult<ProjectFileView> {
+    let database = project_database(&state)?;
+    write_project_file(&database, project_id, path.trim(), &content)
+}
+
+const SEARCH_DEPTH_LIMIT: usize = 20;
+const SEARCH_ENTRY_LIMIT: usize = 5000;
+const SEARCH_FILE_LIMIT: usize = 500;
+const SEARCH_READ_BYTES: usize = 256 * 1024;
+const SEARCH_MATCH_LIMIT: usize = 10;
+const SEARCH_SNIPPET_CHARS: usize = 200;
+const SEARCH_SKIP_DIRS: [&str; 5] = [".git", "node_modules", "target", "dist", "build"];
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentMatch {
+    pub line: u32,
+    pub snippet: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSearchHit {
+    pub path: String,
+    pub kind: DirectoryEntryKind,
+    pub name_match: bool,
+    pub matches: Vec<ProjectContentMatch>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSearchResult {
+    pub hits: Vec<ProjectSearchHit>,
+    pub truncated: bool,
+}
+
+struct SearchCollector<'a> {
+    root: &'a RootHandle,
+    query: String,
+    hits: Vec<ProjectSearchHit>,
+    entries_seen: usize,
+    files_seen: usize,
+    truncated: bool,
+}
+
+impl SearchCollector<'_> {
+    fn walk(&mut self, relative: Option<&RelativePath>, base: &str, depth: usize) {
+        if depth > SEARCH_DEPTH_LIMIT || self.entries_seen >= SEARCH_ENTRY_LIMIT {
+            self.truncated = true;
+            return;
+        }
+        let entries = match self.root.list_directory(relative) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries {
+            if self.entries_seen >= SEARCH_ENTRY_LIMIT {
+                self.truncated = true;
+                return;
+            }
+            if SEARCH_SKIP_DIRS.contains(&entry.name.as_str()) || entry.name == ".DS_Store" {
+                continue;
+            }
+            self.entries_seen += 1;
+            let path = if base.is_empty() {
+                entry.name.clone()
+            } else {
+                format!("{base}/{}", entry.name)
+            };
+            let name_match = entry.name.to_lowercase().contains(&self.query);
+            match entry.kind {
+                DirectoryEntryKind::Directory => {
+                    if name_match {
+                        self.hits.push(ProjectSearchHit {
+                            path: path.clone(),
+                            kind: DirectoryEntryKind::Directory,
+                            name_match: true,
+                            matches: Vec::new(),
+                        });
+                    }
+                    if depth < SEARCH_DEPTH_LIMIT {
+                        if let Ok(nested) = RelativePath::parse(&path) {
+                            self.walk(Some(&nested), &path, depth + 1);
+                        }
+                    }
+                }
+                DirectoryEntryKind::File => {
+                    let mut matches = Vec::new();
+                    if self.files_seen < SEARCH_FILE_LIMIT {
+                        self.files_seen += 1;
+                        matches = self.content_matches(&path);
+                    } else {
+                        self.truncated = true;
+                    }
+                    if name_match || !matches.is_empty() {
+                        self.hits.push(ProjectSearchHit {
+                            path,
+                            kind: DirectoryEntryKind::File,
+                            name_match,
+                            matches,
+                        });
+                    }
+                }
+                _ => {
+                    if name_match {
+                        self.hits.push(ProjectSearchHit {
+                            path,
+                            kind: entry.kind,
+                            name_match: true,
+                            matches: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn content_matches(&self, path: &str) -> Vec<ProjectContentMatch> {
+        let relative = match RelativePath::parse(path) {
+            Ok(relative) => relative,
+            Err(_) => return Vec::new(),
+        };
+        let bytes = match self.root.read(&relative, SEARCH_READ_BYTES) {
+            Ok(bytes) => bytes,
+            Err(_) => return Vec::new(),
+        };
+        let text = match std::str::from_utf8(&bytes) {
+            Ok(text) => text,
+            Err(_) => return Vec::new(),
+        };
+        let mut matches = Vec::new();
+        for (index, line) in text.lines().enumerate() {
+            if line.to_lowercase().contains(&self.query) {
+                if matches.len() < SEARCH_MATCH_LIMIT {
+                    matches.push(ProjectContentMatch {
+                        line: (index + 1) as u32,
+                        snippet: search_snippet(line, &self.query),
+                    });
+                }
+            }
+        }
+        matches
+    }
+}
+
+fn search_snippet(line: &str, query: &str) -> String {
+    let trimmed = line.trim();
+    if trimmed.chars().count() <= SEARCH_SNIPPET_CHARS {
+        return trimmed.to_string();
+    }
+    let lower = trimmed.to_lowercase();
+    let position = lower.find(query).unwrap_or(0);
+    let mut start = position.saturating_sub(SEARCH_SNIPPET_CHARS / 2);
+    while start > 0 && !trimmed.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = (start + SEARCH_SNIPPET_CHARS).min(trimmed.len());
+    while end < trimmed.len() && !trimmed.is_char_boundary(end) {
+        end += 1;
+    }
+    trimmed[start..end].to_string()
+}
+
+pub fn search_project_files(
+    database: &Database,
+    project_id: i64,
+    query: &str,
+) -> ProjectCommandResult<ProjectSearchResult> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return Err(ProjectCommandError::InvalidInput);
+    }
+    let root = database.agent_store().open_project_root(project_id)?;
+    let mut collector = SearchCollector {
+        root: &root,
+        query: trimmed.to_lowercase(),
+        hits: Vec::new(),
+        entries_seen: 0,
+        files_seen: 0,
+        truncated: false,
+    };
+    collector.walk(None, "", 0);
+    Ok(ProjectSearchResult {
+        hits: collector.hits,
+        truncated: collector.truncated,
+    })
+}
+
+#[tauri::command]
+pub fn projects_search(
+    state: State<'_, AppState>,
+    project_id: i64,
+    query: String,
+) -> ProjectCommandResult<ProjectSearchResult> {
+    let database = project_database(&state)?;
+    search_project_files(&database, project_id, &query)
+}
+
 #[tauri::command]
 pub fn projects_list(state: State<'_, AppState>) -> ProjectCommandResult<Vec<ProjectView>> {
     let database = project_database(&state)?;
@@ -430,4 +729,182 @@ pub fn projects_conversation_context(
         .context(conversation_id)
         .map(Into::into)
         .map_err(Into::into)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+    use crate::foundry::db::Database;
+    use crate::foundry::resources::{DirectoryEntryKind, RootHandle};
+
+    #[test]
+    fn list_entries_lists_root_and_nested_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        std::fs::write(root.join("b.txt"), b"b").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub").join("inner.txt"), b"inner").unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        let entries = list_project_entries(&database, project.id, None).unwrap();
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"a.txt"));
+        assert!(names.contains(&"b.txt"));
+        assert!(names.contains(&"sub"));
+
+        let nested = list_project_entries(&database, project.id, Some("sub")).unwrap();
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].name, "inner.txt");
+        assert_eq!(nested[0].kind, DirectoryEntryKind::File);
+    }
+
+    #[test]
+    fn list_entries_sorts_directories_before_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("zeta.txt"), b"z").unwrap();
+        std::fs::create_dir(root.join("alpha")).unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        let entries = list_project_entries(&database, project.id, None).unwrap();
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["alpha", "zeta.txt"]);
+    }
+
+    #[test]
+    fn list_entries_rejects_parent_traversal() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        assert_eq!(
+            list_project_entries(&database, project.id, Some("../escape"))
+                .unwrap_err()
+                .code(),
+            "ProjectFolderUnavailable"
+        );
+        assert_eq!(
+            list_project_entries(&database, project.id, Some("a/../../b"))
+                .unwrap_err()
+                .code(),
+            "ProjectFolderUnavailable"
+        );
+    }
+
+    #[test]
+    fn list_entries_rejects_unknown_project() {
+        let database = Database::open_in_memory().unwrap();
+        assert_eq!(
+            list_project_entries(&database, 42, None).unwrap_err().code(),
+            "ProjectNotFound"
+        );
+    }
+
+    #[test]
+    fn read_and_write_project_file_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"hello").unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        let read = read_project_file(&database, project.id, "a.txt").unwrap();
+        assert_eq!(read.content, "hello");
+        assert!(!read.truncated);
+
+        write_project_file(&database, project.id, "a.txt", "world").unwrap();
+        assert_eq!(
+            std::fs::read(root.join("a.txt")).unwrap(),
+            b"world".to_vec()
+        );
+
+        write_project_file(&database, project.id, "new.txt", "created").unwrap();
+        assert_eq!(std::fs::read(root.join("new.txt")).unwrap(), b"created");
+    }
+
+    #[test]
+    fn read_project_file_rejects_traversal_and_unknown_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        assert!(read_project_file(&database, project.id, "../secret").is_err());
+        assert!(read_project_file(&database, 42, "a.txt").is_err());
+    }
+
+    #[test]
+    fn search_finds_files_by_name_and_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("readme.md"), b"# hello world\n").unwrap();
+        std::fs::write(root.join("src/main.rs"), b"fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+        std::fs::write(root.join("notes.txt"), b"nothing to see\n").unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        let by_name = search_project_files(&database, project.id, "readme").unwrap();
+        assert!(by_name.hits.iter().any(|hit| hit.path == "readme.md" && hit.name_match));
+
+        let by_content = search_project_files(&database, project.id, "hello").unwrap();
+        assert!(by_content.hits.iter().any(|hit| hit.path == "src/main.rs" && !hit.matches.is_empty()));
+        assert!(by_content.hits.iter().any(|hit| hit.path == "readme.md" && !hit.matches.is_empty()));
+        assert!(!by_content.hits.iter().any(|hit| hit.path == "notes.txt"));
+    }
+
+    #[test]
+    fn search_skips_generated_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir_all(root.join("node_modules")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join("node_modules/dep.txt"), b"match").unwrap();
+        std::fs::write(root.join(".git/config"), b"match").unwrap();
+        std::fs::write(root.join("app.txt"), b"match").unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        let result = search_project_files(&database, project.id, "match").unwrap();
+        assert!(result.hits.iter().any(|hit| hit.path == "app.txt"));
+        assert!(!result.hits.iter().any(|hit| hit.path.contains("node_modules")));
+        assert!(!result.hits.iter().any(|hit| hit.path.contains(".git")));
+    }
+
+    #[test]
+    fn search_rejects_empty_query() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let handle = RootHandle::enroll(&root).unwrap();
+        let database = Database::open_in_memory().unwrap();
+        let project = database.agent_store().create_project(&handle, None).unwrap();
+
+        assert_eq!(
+            search_project_files(&database, project.id, "   ").unwrap_err().code(),
+            "ProjectInvalidInput"
+        );
+    }
 }

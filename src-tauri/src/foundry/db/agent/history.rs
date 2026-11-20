@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use std::collections::HashMap;
+
 use super::{
-    ActionOutcome, AgentStore, AgentStoreError, AgentStoreResult, read_run, store_error,
-    validate_key,
+    ActionOutcome, AgentStore, AgentStoreError, AgentStoreResult, ContextFact, read_run,
+    store_error, validate_key,
 };
 use crate::foundry::db::MessageRole;
 use crate::foundry::jobs::now_millis;
@@ -81,6 +83,7 @@ pub enum AgentEventState {
     ActionCancelled,
     RunInterrupted,
     ActionInterrupted,
+    ContextCompacted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +91,24 @@ pub struct HistoryEntry {
     pub sequence: i64,
     pub run_id: Option<i64>,
     pub content: HistoryContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurn {
+    pub message_id: i64,
+    pub tools: Vec<AgentToolCard>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentToolCard {
+    pub call_id: String,
+    pub tool: String,
+    pub arguments: Value,
+    pub outcome: Option<String>,
+    pub summary: Option<Value>,
+    pub diff: Option<String>,
 }
 
 impl AgentStore<'_> {
@@ -160,6 +181,185 @@ impl AgentStore<'_> {
 
     pub fn action(&self, id: i64) -> AgentStoreResult<ActionRecord> {
         read_action(&self.database.connection(), id)
+    }
+
+    pub fn agent_turns(&self, conversation_id: i64) -> AgentStoreResult<Vec<AgentTurn>> {
+        let connection = self.database.connection();
+        let runs = {
+            let mut statement = connection
+                .prepare("SELECT id, request_key FROM agent_runs WHERE conversation_id = ?1 ORDER BY id")
+                .map_err(store_error)?;
+            statement
+                .query_map([conversation_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(store_error)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(store_error)?
+        };
+        let mut turns = Vec::new();
+        for (run_id, request_key) in runs {
+            let Some(message_id) = request_key
+                .strip_prefix("agent-")
+                .and_then(|suffix| suffix.parse::<i64>().ok())
+            else {
+                continue;
+            };
+            let rows = {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT content_json, action_id FROM agent_history
+                         WHERE run_id = ?1
+                           AND json_extract(content_json, '$.kind') IN ('tool_call', 'tool_result')
+                         ORDER BY seq",
+                    )
+                    .map_err(store_error)?;
+                statement
+                    .query_map([run_id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+                    })
+                    .map_err(store_error)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(store_error)?
+            };
+            let mut cards: Vec<AgentToolCard> = Vec::new();
+            let mut index: HashMap<String, usize> = HashMap::new();
+            for (encoded, action_id) in rows {
+                let content: HistoryContent =
+                    serde_json::from_str(&encoded).map_err(|_| AgentStoreError::Storage)?;
+                match content {
+                    HistoryContent::ToolCall {
+                        call_id,
+                        tool,
+                        arguments,
+                    } => {
+                        index.insert(call_id.clone(), cards.len());
+                        cards.push(AgentToolCard {
+                            call_id,
+                            tool,
+                            arguments,
+                            outcome: None,
+                            summary: None,
+                            diff: None,
+                        });
+                    }
+                    HistoryContent::ToolResult {
+                        call_id,
+                        outcome,
+                        summary,
+                    } => {
+                        let diff = action_id
+                            .and_then(|id| diff_for_action(&connection, conversation_id, id));
+                        let outcome = match outcome {
+                            ActionOutcome::Succeeded => "succeeded",
+                            ActionOutcome::Failed => "failed",
+                            ActionOutcome::Cancelled => "cancelled",
+                        };
+                        match index.get(&call_id).copied() {
+                            Some(position) => {
+                                let card = &mut cards[position];
+                                card.outcome = Some(outcome.to_string());
+                                card.summary = Some(summary);
+                                card.diff = diff;
+                            }
+                            None => cards.push(AgentToolCard {
+                                call_id,
+                                tool: String::new(),
+                                arguments: Value::Null,
+                                outcome: Some(outcome.to_string()),
+                                summary: Some(summary),
+                                diff,
+                            }),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !cards.is_empty() {
+                turns.push(AgentTurn {
+                    message_id,
+                    tools: cards,
+                });
+            }
+        }
+        Ok(turns)
+    }
+}
+
+fn diff_for_action(
+    connection: &Connection,
+    conversation_id: i64,
+    action_id: i64,
+) -> Option<String> {
+    let key = format!("change-{action_id}");
+    let encoded: String = connection
+        .query_row(
+            "SELECT payload_json FROM agent_context_facts
+             WHERE conversation_id = ?1 AND fact_key = ?2
+             ORDER BY id DESC LIMIT 1",
+            params![conversation_id, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()?;
+    let fact: ContextFact = serde_json::from_str(&encoded).ok()?;
+    match fact {
+        ContextFact::ChangeSet { diff, .. } => Some(diff),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::foundry::db::Database;
+    use serde_json::json;
+
+    #[test]
+    fn agent_turns_pairs_tool_calls_with_results() {
+        let database = Database::open_in_memory().unwrap();
+        let conversation = database.create_conversation("fixture").unwrap();
+        let store = database.agent_store();
+        let run = store.start_run(conversation.id, "agent-77").unwrap();
+        store
+            .record_unbound_tool_result(
+                run.id,
+                "call-a",
+                "read_file",
+                &json!({"path": "a.txt"}),
+                ActionOutcome::Succeeded,
+                &json!({"status": "succeeded"}),
+            )
+            .unwrap();
+
+        let turns = store.agent_turns(conversation.id).unwrap();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].message_id, 77);
+        assert_eq!(turns[0].tools.len(), 1);
+        assert_eq!(turns[0].tools[0].tool, "read_file");
+        assert_eq!(turns[0].tools[0].call_id, "call-a");
+        assert_eq!(turns[0].tools[0].outcome.as_deref(), Some("succeeded"));
+    }
+
+    #[test]
+    fn agent_turns_skips_runs_without_a_message_owner() {
+        let database = Database::open_in_memory().unwrap();
+        let conversation = database.create_conversation("fixture").unwrap();
+        let store = database.agent_store();
+        let run = store.start_run(conversation.id, "fixture").unwrap();
+        store
+            .record_unbound_tool_result(
+                run.id,
+                "call-a",
+                "read_file",
+                &json!({"path": "a.txt"}),
+                ActionOutcome::Succeeded,
+                &json!({"status": "succeeded"}),
+            )
+            .unwrap();
+
+        assert!(store.agent_turns(conversation.id).unwrap().is_empty());
     }
 }
 

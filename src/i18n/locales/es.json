@@ -37,6 +37,24 @@
       "ProjectInvalidSelection": "Elige una carpeta existente y accesible.",
       "ProjectDialogUnavailable": "El diálogo nativo de carpetas no está disponible. Inténtalo en la aplicación de escritorio.",
       "ProjectNotReady": "Los servicios de proyectos no están listos. Inténtalo de nuevo."
+    },
+    "files": {
+      "title": "Archivos del proyecto",
+      "mention": "Mencionar archivo",
+      "attach": "Adjuntar como texto",
+      "open": "Abrir archivo",
+      "refresh": "Actualizar",
+      "search": "Buscar",
+      "closeSearch": "Cerrar búsqueda",
+      "searchPlaceholder": "Buscar archivos o contenido…",
+      "searchHint": "Escribe al menos 2 caracteres.",
+      "searchEmpty": "Sin resultados.",
+      "searchTruncated": "Resultados truncados (límite alcanzado).",
+      "searchError": "No se pudo buscar.",
+      "clearSearch": "Limpiar búsqueda",
+      "loadError": "No se pudo listar esta carpeta.",
+      "empty": "Esta carpeta está vacía.",
+      "noProject": "Abre un proyecto para referenciar sus archivos."
     }
   },
   "rail": {
@@ -163,6 +181,7 @@
     "attachTooMany": "Un mensaje acepta hasta {{count}} imágenes.",
     "attachTooLarge": "Cada imagen debe pesar menos de {{size}} MB.",
     "attachUnsupported": "Solo se pueden adjuntar imágenes PNG, JPEG, GIF o WebP.",
+    "mentionFile": "Referenciar un archivo del proyecto",
     "details": "Parámetros usados",
     "hideDetails": "Ocultar parámetros",
     "roles": {
@@ -287,6 +306,7 @@
       "load": "Cargar",
       "download": "Descargar",
       "downloading": "Descargando…",
+      "loading": "Cargando…",
       "retryDownload": "Reintentar",
       "empty": "No hay modelos disponibles"
     },

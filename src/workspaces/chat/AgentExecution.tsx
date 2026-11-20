@@ -13,10 +13,9 @@ import { RecoveryPanel } from "./RecoveryPanel";
 
 type PanelTab = "access" | "permissions" | "context" | "snapshots" | "recovery";
 
-export function AgentExecution({ agent, compatible, disabled, hasAttachments }: {
+export function AgentExecution({ agent, compatible, hasAttachments }: {
   agent: ReturnType<typeof useAgentExecution>;
   compatible: boolean;
-  disabled: boolean;
   hasAttachments: boolean;
 }) {
   const { t } = useTranslation();
@@ -39,11 +38,6 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
       <div className="shrink-0 px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={agent.enabled} disabled={disabled || agent.busy || (!agent.enabled && (!compatible || hasAttachments || !status || agent.error))}
-              onChange={(event) => agent.setEnabled(event.target.checked)} className={projectControlFocus} />
-            {t("execution.enabled")}
-          </label>
-          <label className="inline-flex items-center gap-2">
             {t("execution.mode")}
             <select value={status?.mode ?? "review"} disabled={!status || agent.changingMode || agent.error}
               title={t("execution.modeHint")}
@@ -59,8 +53,8 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
           ) : null}
         </div>
         {!compatible ? <p className="mt-2">{t("execution.incompatible")}</p> : null}
-        {agent.enabled && hasAttachments ? <p className="mt-2">{t("execution.attachments")}</p> : null}
-        {agent.enabled || status?.execution ? <p className="mt-2">{t("execution.limits")}</p> : null}
+        {hasAttachments ? <p className="mt-2">{t("execution.attachments")}</p> : null}
+        {status?.execution ? <p className="mt-2">{t("execution.limits")}</p> : null}
         {stage === "pending" ? <p className="mt-2">{t(status?.continuationAvailable ? "execution.livePendingHint" : "execution.pendingHint")}</p> : null}
         {status?.pendingRequests?.length ? <div className="mt-2 max-h-48 overflow-y-auto">
           {status.pendingRequests.map((request) => {
@@ -68,7 +62,14 @@ export function AgentExecution({ agent, compatible, disabled, hasAttachments }: 
             const rememberEligible = request.requirements.length > 0 && request.requirements.every((requirement) => requirement.rememberEligible);
             return <div key={request.id} className="border-t border-line py-2">
               <p className="font-medium">{t("execution.request", { id: request.id })}</p>
-              {request.requirements.map((requirement, index) => <p key={`${requirement.constraintsFingerprint}-${index}`} className="whitespace-pre-wrap break-words">{requirement.target}</p>)}
+              {request.requirements.map((requirement, index) => (
+                <div key={`${requirement.constraintsFingerprint}-${index}`}>
+                  <p className="whitespace-pre-wrap break-words">{requirement.target}</p>
+                  {requirement.diff ? (
+                    <pre className="mt-1 max-h-56 overflow-auto whitespace-pre rounded border border-line bg-subtle px-2 py-1.5 font-mono text-[11px] leading-relaxed text-secondary">{requirement.diff}</pre>
+                  ) : null}
+                </div>
+              ))}
               {!previewAvailable ? <p className="mt-1">{t("execution.noPreview")}</p> : null}
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" className={control} disabled={agent.deciding !== null || agent.stopping || !status.continuationAvailable || !previewAvailable}

@@ -7,7 +7,7 @@ use foundry::access_commands::{
     access_network_log, access_read_preference, access_set_read_preference,
 };
 use foundry::agent_run_commands::{
-    agent_execution_mode, agent_execution_status, agent_run_cancel, agent_run_start,
+    agent_execution_mode, agent_execution_status, agent_run_cancel, agent_run_start, agent_turns,
 };
 use foundry::attachments::AttachmentStore;
 use foundry::commands::{
@@ -39,18 +39,21 @@ use foundry::db::Database;
 use foundry::instruction_commands::{instructions_decide, instructions_discover};
 use foundry::lifecycle_commands::{projects_move_conversation, projects_remove};
 use foundry::permission_commands::{
-    authorization_decide, authorization_grants, authorization_pick_root, authorization_requests,
-    authorization_revision, authorization_revoke,
+    authorization_categories, authorization_decide, authorization_grants, authorization_pick_root,
+    authorization_requests, authorization_revision, authorization_revoke,
+    authorization_set_categories,
 };
 use foundry::project_commands::{
     projects_confirm_folder, projects_conversation_context, projects_create_conversation,
-    projects_discard_folder, projects_get, projects_list, projects_list_conversations,
-    projects_pick_create, projects_pick_folder, projects_pick_relocate, projects_rename,
+    projects_discard_folder, projects_file_read, projects_file_write, projects_get, projects_list,
+    projects_list_conversations, projects_list_entries, projects_pick_create, projects_pick_folder,
+    projects_pick_relocate, projects_rename, projects_search,
 };
 use foundry::recovery_commands::{recovery_list, recovery_undo};
 use foundry::snapshot_commands::{
     snapshots_candidates, snapshots_capture, snapshots_get, snapshots_list, snapshots_remove,
 };
+use foundry::terminal_commands::terminal_status;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -81,6 +84,10 @@ pub fn run() {
             projects_pick_relocate,
             projects_create_conversation,
             projects_conversation_context,
+            projects_list_entries,
+            projects_file_read,
+            projects_file_write,
+            projects_search,
             snapshots_candidates,
             snapshots_capture,
             snapshots_get,
@@ -92,13 +99,17 @@ pub fn run() {
             authorization_revoke,
             authorization_pick_root,
             authorization_decide,
+            authorization_categories,
+            authorization_set_categories,
             recovery_list,
             recovery_undo,
             context_budgets,
+            terminal_status,
             agent_run_start,
             agent_run_cancel,
             agent_execution_status,
             agent_execution_mode,
+            agent_turns,
             access_read_preference,
             access_set_read_preference,
             access_network_log,

@@ -142,7 +142,7 @@ impl TurnProvider for InstructionProvider<'_, '_> {
         for call in &turn.calls {
             if !matches!(
                 call.name.as_str(),
-                "read_file" | "search_files" | "propose_file_change"
+                "read_file" | "list_files" | "search_files" | "propose_file_change"
             ) {
                 continue;
             }
@@ -152,7 +152,7 @@ impl TurnProvider for InstructionProvider<'_, '_> {
             if RelativePath::parse(path).is_err() {
                 continue;
             }
-            let path = if call.name == "search_files" {
+            let path = if call.name == "search_files" || call.name == "list_files" {
                 format!("{path}/__search_scope__")
             } else {
                 path.to_string()

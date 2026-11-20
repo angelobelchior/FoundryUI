@@ -2,9 +2,12 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::change_tools::{ChangeAuthorizer, ChangeExecutor};
-use super::command_tools::{CommandAuthorizer, CommandExecutor};
+use super::command_tools::{
+    CommandAuthorizer, CommandExecutor, TerminalAuthorizer, TerminalExecutor,
+};
 use super::context_search::{SearchAuthorizer, SearchExecutor};
 use super::cycle::{ToolAuthorizer, ToolExecution, ToolExecutor, ToolHost};
+use super::list_tools::{ListAuthorizer, ListExecutor};
 use super::network_tools::{NetworkAuthorizer, NetworkExecutor};
 use super::parser::ToolCall;
 use super::read_tools::{ReadAuthorizer, ReadExecutor};
@@ -25,9 +28,11 @@ impl ToolExecutor for ToolExecutorSet {
     ) -> ToolExecution {
         match call.name.as_str() {
             "read_file" => ReadExecutor.execute(call, spec, host).await,
+            "list_files" => ListExecutor.execute(call, spec, host).await,
             "search_files" => SearchExecutor.execute(call, spec, host).await,
             "propose_file_change" => ChangeExecutor.execute(call, spec, host).await,
             "run_command" => CommandExecutor.execute(call, spec, host).await,
+            "terminal_run" => TerminalExecutor.execute(call, spec, host).await,
             "http_request" => NetworkExecutor.execute(call, spec, host).await,
             _ => ToolExecution::Failed {
                 summary: json!({"status": "failed", "code": "unknown_tool"}),
@@ -48,9 +53,11 @@ impl ToolAuthorizer for ToolAuthorizerSet {
     ) -> Result<p::TrustedFacts, String> {
         match call.name.as_str() {
             "read_file" => ReadAuthorizer.facts(store, revision, action, call),
+            "list_files" => ListAuthorizer.facts(store, revision, action, call),
             "search_files" => SearchAuthorizer.facts(store, revision, action, call),
             "propose_file_change" => ChangeAuthorizer.facts(store, revision, action, call),
             "run_command" => CommandAuthorizer.facts(store, revision, action, call),
+            "terminal_run" => TerminalAuthorizer.facts(store, revision, action, call),
             "http_request" => NetworkAuthorizer.facts(store, revision, action, call),
             _ => Err("no authorizer is registered for this tool".to_string()),
         }

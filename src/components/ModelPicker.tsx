@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckIcon, ChevronDownIcon, DownloadIcon } from "./Icon";
+import { AlertIcon, CheckIcon, ChevronDownIcon, DownloadIcon, LoadIcon } from "./Icon";
 import { Spinner } from "./Spinner";
 import { cx } from "../lib/cx";
 import { type CatalogModel, type ModelJob } from "../lib/foundry";
@@ -63,6 +63,26 @@ export function ModelPicker({
         : status === "notSelected"
           ? t("models.picker.notSelected")
           : t("models.picker.notLoaded");
+
+  const runningDownload = Object.values(jobs ?? {}).find((job) => job.status === "running");
+  const downloadPercent =
+    runningDownload && runningDownload.totalBytes > 0
+      ? Math.round((runningDownload.receivedBytes / runningDownload.totalBytes) * 100)
+      : null;
+  const busyText = loadingAlias !== null
+    ? t("models.picker.loading")
+    : runningDownload
+      ? downloadPercent !== null
+        ? `${t("models.picker.downloading")} ${downloadPercent}%`
+        : t("models.picker.downloading")
+      : null;
+
+  const statusIcon =
+    status === "none" ? (
+      <DownloadIcon size={11} className="shrink-0 text-secondary" />
+    ) : status === "notLoaded" ? (
+      <AlertIcon size={11} className="shrink-0 text-secondary" />
+    ) : null;
 
   useEffect(() => {
     if (!open) {
@@ -129,14 +149,24 @@ export function ModelPicker({
         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em] text-tertiary">
           {label}
         </span>
-        <span
-          className={cx(
-            "min-w-0 truncate",
-            status === "ok" ? "font-medium text-primary" : "text-secondary",
-          )}
-        >
-          {valueText}
-        </span>
+        {busyText !== null ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-medium text-primary">
+            <Spinner size={11} className="shrink-0" />
+            <span className="min-w-0 truncate">{busyText}</span>
+          </span>
+        ) : (
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+            {statusIcon}
+            <span
+              className={cx(
+                "min-w-0 truncate",
+                status === "ok" ? "font-medium text-primary" : "text-secondary",
+              )}
+            >
+              {valueText}
+            </span>
+          </span>
+        )}
         <ChevronDownIcon
           size={12}
           className={cx("shrink-0 text-tertiary transition-transform duration-150", open && "rotate-180")}
@@ -201,7 +231,7 @@ export function ModelPicker({
                     className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-secondary transition-colors hover:bg-hover hover:text-primary disabled:opacity-60"
                   >
                     <span className="flex w-4 shrink-0 justify-center">
-                      {loading ? <Spinner size={11} /> : null}
+                      {loading ? <Spinner size={11} /> : <LoadIcon size={12} />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{model.alias}</span>

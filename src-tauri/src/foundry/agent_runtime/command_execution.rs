@@ -49,10 +49,15 @@ pub fn capture_command_effects(
     let real = root.display_path().to_path_buf();
     let staging = tempfile::tempdir().map_err(|error| error.to_string())?;
     let mut budget = StagingBudget::default();
-    copy_tree(&real, staging.path(), &mut budget)?;
+    copy_tree_with_budget(&real, staging.path(), &mut budget)?;
     let run = run_sandboxed(staging.path(), argv, timeout);
     let changes = diff_tree(&real, staging.path());
     Ok((run, changes))
+}
+
+pub(crate) fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    let mut budget = StagingBudget::default();
+    copy_tree_with_budget(source, destination, &mut budget)
 }
 
 #[derive(Default)]
@@ -61,7 +66,11 @@ struct StagingBudget {
     files: u64,
 }
 
-fn copy_tree(source: &Path, destination: &Path, budget: &mut StagingBudget) -> Result<(), String> {
+fn copy_tree_with_budget(
+    source: &Path,
+    destination: &Path,
+    budget: &mut StagingBudget,
+) -> Result<(), String> {
     fs::create_dir_all(destination).map_err(|error| error.to_string())?;
     for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
@@ -74,7 +83,7 @@ fn copy_tree(source: &Path, destination: &Path, budget: &mut StagingBudget) -> R
         let destination_path = destination.join(&name);
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
         if file_type.is_dir() {
-            copy_tree(&source_path, &destination_path, budget)?;
+            copy_tree_with_budget(&source_path, &destination_path, budget)?;
             continue;
         }
         if !file_type.is_file() {
@@ -92,7 +101,7 @@ fn copy_tree(source: &Path, destination: &Path, budget: &mut StagingBudget) -> R
     Ok(())
 }
 
-fn diff_tree(real: &Path, staging: &Path) -> Vec<FileChange> {
+pub(crate) fn diff_tree(real: &Path, staging: &Path) -> Vec<FileChange> {
     let mut changes = Vec::new();
     diff_dir(real, staging, "", &mut changes);
     changes
@@ -173,7 +182,7 @@ fn diff_dir(real: &Path, staging: &Path, prefix: &str, changes: &mut Vec<FileCha
     }
 }
 
-fn sandbox_profile(directory: &Path) -> String {
+pub(crate) fn sandbox_profile(directory: &Path) -> String {
     let root = directory.to_string_lossy();
     let mut profile = String::new();
     profile.push_str("(version 1)\n");

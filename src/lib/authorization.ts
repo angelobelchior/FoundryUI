@@ -17,6 +17,7 @@ export type AuthorizationRequirement = {
   rememberEligible: boolean;
   recoveryGuaranteed: boolean;
   previewAvailable: boolean;
+  diff: string | null;
 };
 
 export type AuthorizationRevision = {
@@ -27,6 +28,13 @@ export type AuthorizationRevision = {
   mode: "review" | "automatic";
   projectBound: boolean;
   globalReadAllowed: boolean;
+};
+
+export type CategoryPermissions = {
+  readAuto: boolean;
+  editAuto: boolean;
+  commandAuto: boolean;
+  networkAuto: boolean;
 };
 
 export type AuthorizationRequest = {
@@ -82,6 +90,8 @@ export const authorizationApi = {
       conversationId,
       requestId,
       decision,
-      language: detectLanguage(),
     }),
+  categories: () => invoke<CategoryPermissions>("authorization_categories"),
+  setCategories: (categories: CategoryPermissions) =>
+    invoke<CategoryPermissions>("authorization_set_categories", { categories }),
 };

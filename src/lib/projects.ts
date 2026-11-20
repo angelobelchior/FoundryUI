@@ -61,6 +61,34 @@ export type ContextCycleResult = {
   deletedConversationIds: number[];
 };
 
+export type ProjectEntry = {
+  name: string;
+  kind: "file" | "directory" | "symlink" | "other";
+};
+
+export type ProjectFile = {
+  path: string;
+  content: string;
+  truncated: boolean;
+};
+
+export type ProjectContentMatch = {
+  line: number;
+  snippet: string;
+};
+
+export type ProjectSearchHit = {
+  path: string;
+  kind: "file" | "directory" | "symlink" | "other";
+  nameMatch: boolean;
+  matches: ProjectContentMatch[];
+};
+
+export type ProjectSearchResult = {
+  hits: ProjectSearchHit[];
+  truncated: boolean;
+};
+
 export const projectApi = {
   pickFolder: () => invoke<ProjectFolderSelection | null>("projects_pick_folder"),
   confirmFolder: (selectionId: string, name: string) =>
@@ -100,4 +128,12 @@ export const projectApi = {
       id,
       language: detectLanguage(),
     }),
+  listEntries: (projectId: number, path: string | null = null) =>
+    invoke<ProjectEntry[]>("projects_list_entries", { projectId, path }),
+  readFile: (projectId: number, path: string) =>
+    invoke<ProjectFile>("projects_file_read", { projectId, path }),
+  writeFile: (projectId: number, path: string, content: string) =>
+    invoke<ProjectFile>("projects_file_write", { projectId, path, content }),
+  search: (projectId: number, query: string) =>
+    invoke<ProjectSearchResult>("projects_search", { projectId, query }),
 };

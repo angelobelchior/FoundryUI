@@ -15,7 +15,8 @@ use super::catalog;
 use super::chat::{ChatParams, GenerationStart, SendReceipt};
 use super::db::agent::authorization::AuthorizationStatus;
 use super::db::agent::{
-    ActiveRun, AgentMode, AgentStoreError, CancelReceipt, ExecutionRun, HistoryContent, RunState,
+    ActiveRun, AgentMode, AgentStoreError, AgentTurn, CancelReceipt, ExecutionRun, HistoryContent,
+    RunState,
 };
 use super::db::{ChatMessage, Conversation, Database, MessageRole, MessageStatus};
 use super::error::{FoundryError, FoundryResult};
@@ -388,6 +389,18 @@ pub struct ExecutionStatus {
     pub blocker_title: Option<String>,
     pub pending_requests: Vec<AuthorizationRequestView>,
     pub continuation_available: bool,
+}
+
+#[tauri::command]
+pub fn agent_turns(
+    state: State<'_, AppState>,
+    conversation_id: i64,
+) -> AgentCommandResult<Vec<AgentTurn>> {
+    let database = state.database().map_err(|_| AgentCommandError::NotReady)?;
+    database
+        .agent_store()
+        .agent_turns(conversation_id)
+        .map_err(Into::into)
 }
 
 #[tauri::command]

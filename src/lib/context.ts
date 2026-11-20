@@ -31,6 +31,7 @@ export type ContextManifest = {
   summarized_messages: number;
   omitted_messages: number;
   truncated: boolean;
+  compacted: boolean;
   sources: ContextSource[];
   omissions: ContextOmission[];
 };

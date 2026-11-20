@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { authorizationApi, type AuthorizationGrant } from "../../lib/authorization";
+import { authorizationApi, type AuthorizationGrant, type CategoryPermissions } from "../../lib/authorization";
 import { instructionApi, type InstructionDiscovery } from "../../lib/instructions";
 import { projectControlFocus } from "./projectFocus";
 
@@ -8,6 +8,7 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
   const { t } = useTranslation();
   const [grants, setGrants] = useState<AuthorizationGrant[] | null>(null);
   const [projectBound, setProjectBound] = useState<boolean | null>(null);
+  const [categories, setCategories] = useState<CategoryPermissions | null>(null);
   const [instructions, setInstructions] = useState<InstructionDiscovery | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -15,6 +16,7 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
   const [revoking, setRevoking] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
   const mounted = useRef(true);
   const generation = useRef(0);
   const onChangedRef = useRef(onChanged);
@@ -23,14 +25,16 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
   const refresh = useCallback(async () => {
     const version = ++generation.current;
     try {
-      const [revision, grantList, discovery] = await Promise.all([
+      const [revision, grantList, categoryList, discovery] = await Promise.all([
         authorizationApi.revision(conversationId),
         authorizationApi.grants(conversationId),
+        authorizationApi.categories(),
         instructionApi.discover(conversationId),
       ]);
       if (!mounted.current || generation.current !== version) return;
       setProjectBound(revision.projectBound);
       setGrants(grantList);
+      setCategories(categoryList);
       setInstructions(discovery);
       setError(false);
     } catch {
@@ -97,6 +101,23 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
     }
   }
 
+  async function setCategory(key: keyof CategoryPermissions, value: boolean) {
+    if (savingCategory || !categories) return;
+    setSavingCategory(true);
+    try {
+      const next = { ...categories, [key]: value };
+      const saved = await authorizationApi.setCategories(next);
+      if (!mounted.current) return;
+      setCategories(saved);
+      setActionError(false);
+      onChangedRef.current();
+    } catch {
+      if (mounted.current) setActionError(true);
+    } finally {
+      if (mounted.current) setSavingCategory(false);
+    }
+  }
+
   const button = `rounded-md border border-line px-2 py-1 text-[13px] text-primary hover:bg-hover disabled:opacity-50 ${projectControlFocus}`;
   const statusLabels: Record<string, string> = {
     pending: t("permissions.statusPending"),
@@ -120,6 +141,25 @@ export function PermissionsPanel({ conversationId, onChanged }: { conversationId
             <button type="button" className={button} disabled={revoking !== null} onClick={() => void revoke(grant.id)}>{revoking === grant.id ? t("permissions.revoking") : t("permissions.revoke")}</button>
           </li>)}
         </ul>
+      </div>
+      <div>
+        <h2 className="font-medium">{t("permissions.categories")}</h2>
+        <p className="mt-1">{t("permissions.categoriesHint")}</p>
+        {!loading && !error && categories ? <ul className="mt-2 divide-y divide-line">
+          {([
+            ["readAuto", "categoryRead"],
+            ["editAuto", "categoryEdit"],
+            ["commandAuto", "categoryCommand"],
+            ["networkAuto", "categoryNetwork"],
+          ] as const).map(([key, label]) => <li key={key} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={categories[key]} disabled={savingCategory} onChange={(event) => void setCategory(key, event.target.checked)} className={projectControlFocus} />
+              <span>{t(`permissions.${label}`)}</span>
+            </label>
+            <span className="text-[12px] text-secondary">{categories[key] ? t("permissions.categoryAuto") : t("permissions.categoryReview")}</span>
+          </li>)}
+        </ul> : null}
+        {savingCategory ? <p role="status">{t("permissions.savingCategory")}</p> : null}
       </div>
       <div>
         <h2 className="font-medium">{t("permissions.instructions")}</h2>

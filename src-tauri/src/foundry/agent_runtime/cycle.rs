@@ -518,6 +518,20 @@ impl Driver<'_, '_> {
                     &manifest,
                 );
             }
+            if plan.manifest.compacted {
+                let _ = self.store.record_event(
+                    self.conversation_id,
+                    self.run.id,
+                    None,
+                    AgentEventState::ContextCompacted,
+                    Some(&format!(
+                        "included={} summarized={} omitted={}",
+                        plan.manifest.included_messages,
+                        plan.manifest.summarized_messages,
+                        plan.manifest.omitted_messages
+                    )),
+                );
+            }
             let turn = match within(
                 started,
                 self.limits.max_duration,

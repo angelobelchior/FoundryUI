@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { CloseIcon, MicIcon, PaperclipIcon, SendIcon, StopIcon } from "../../components/Icon";
+import { CloseIcon, FileIcon, MicIcon, PaperclipIcon, SendIcon, StopIcon } from "../../components/Icon";
 import { Modal } from "../../components/Modal";
 import { Spinner } from "../../components/Spinner";
 import { Tooltip } from "../../components/Tooltip";
@@ -25,6 +25,7 @@ import {
   writeSpeechModelPreference,
 } from "../../lib/speech";
 import { errorLabel } from "../models/format";
+import { FileTree } from "./FileTree";
 
 type ComposerProps = {
   value: string;
@@ -32,6 +33,7 @@ type ComposerProps = {
   active: boolean;
   stopping: boolean;
   modelLabel: string;
+  projectId: number | null;
   attachments: StagedImage[];
   attachEnabled: boolean;
   attachHint: string;
@@ -49,6 +51,7 @@ export function Composer({
   active,
   stopping,
   modelLabel,
+  projectId,
   attachments,
   attachEnabled,
   attachHint,
@@ -77,6 +80,7 @@ export function Composer({
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memoryCandidates, setMemoryCandidates] = useState<string[]>([]);
   const [memoryBusyAlias, setMemoryBusyAlias] = useState<string | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -175,6 +179,26 @@ export function Composer({
     });
     onChange(next);
     push(t("chat.dictation.inserted"), "neutral");
+    window.requestAnimationFrame(() => {
+      node?.focus();
+      node?.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function insertReference(path: string) {
+    const reference = `@${path}`;
+    const node = textareaRef.current;
+    const selectionStart = node?.selectionStart ?? value.length;
+    const selectionEnd = node?.selectionEnd ?? value.length;
+    const next = `${value.slice(0, selectionStart)}${reference} ${value.slice(selectionEnd)}`;
+    const cursor = selectionStart + reference.length + 1;
+
+    setUndoDraft({
+      previous: value,
+      selectionStart,
+      selectionEnd,
+    });
+    onChange(next);
     window.requestAnimationFrame(() => {
       node?.focus();
       node?.setSelectionRange(cursor, cursor);
@@ -488,6 +512,24 @@ export function Composer({
                 </button>
               </Tooltip>
               <Tooltip
+                label={projectId === null ? t("projects.files.noProject") : t("chat.mentionFile")}
+                side="right"
+              >
+                <button
+                  type="button"
+                  aria-label={t("chat.mentionFile")}
+                  disabled={projectId === null || active || sending || transcribing}
+                  onClick={() => setFilesOpen(true)}
+                  className={cx(
+                    "inline-flex h-7 w-7 items-center justify-center rounded-md text-tertiary transition-colors",
+                    "hover:bg-hover hover:text-primary",
+                    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-tertiary",
+                  )}
+                >
+                  <FileIcon size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip
                 label={
                   transcribing
                     ? t("chat.dictation.transcribing")
@@ -604,6 +646,31 @@ export function Composer({
           }}
         />
       </div>
+
+      <Modal
+        open={filesOpen && projectId !== null}
+        title={t("projects.files.title")}
+        onClose={() => setFilesOpen(false)}
+        size="md"
+      >
+        {projectId !== null ? (
+          <FileTree
+            projectId={projectId}
+            onMention={(path) => {
+              insertReference(path);
+              setFilesOpen(false);
+            }}
+            onAttachText={(path) => {
+              insertReference(path);
+              setFilesOpen(false);
+            }}
+            onOpen={(path) => {
+              insertReference(path);
+              setFilesOpen(false);
+            }}
+          />
+        ) : null}
+      </Modal>
 
       <Modal
         open={memoryOpen}

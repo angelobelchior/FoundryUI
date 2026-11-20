@@ -36,6 +36,7 @@ base64 = "0.22"
 cpal = "0.18.2"
 tauri-plugin-dialog = "2.8.4"
 pdf-extract = "0.7"
+libc = "0.2.191"
 
 [profile.release]
 codegen-units = 1
@@ -45,7 +46,6 @@ panic = "abort"
 strip = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2.191"
 objc2 = "0.6.5"
 objc2-av-foundation = "0.3.2"
 objc2-foundation = "0.3.2"

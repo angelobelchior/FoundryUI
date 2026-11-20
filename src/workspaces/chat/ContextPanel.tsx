@@ -56,6 +56,7 @@ export function ContextPanel({ conversationId }: { conversationId: number }) {
           <p className="mt-1">{t("context.counts", { included: manifest.included_messages, summarized: manifest.summarized_messages, omitted: manifest.omitted_messages, original: manifest.original_messages })}</p>
           {manifest.warning ? <p className="mt-1">{t("context.conservative")}</p> : null}
           {manifest.truncated ? <p className="mt-1">{t("context.truncated")}</p> : null}
+          {manifest.compacted ? <p className="mt-1">{t("context.compacted")}</p> : null}
           <div className="mt-3">
             <h3 className="text-[13px] font-medium">{t("context.sources")}</h3>
             {!manifest.sources.length ? <p className="mt-1 text-[13px] text-secondary">{t("context.sourcesEmpty")}</p> : <ul className="mt-1 divide-y divide-line">

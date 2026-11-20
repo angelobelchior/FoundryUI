@@ -11,6 +11,8 @@ import { cx } from "../../lib/cx";
 import { isFoundryErrorCode } from "../../lib/foundry";
 import type { ChatAttachment, ChatMessage } from "../../lib/chat";
 import { paramFields, type ResolvedParams } from "../../lib/params";
+import type { AgentToolCard } from "../../lib/agent";
+import { AgentActivity } from "./ToolCard";
 
 type MessageListProps = {
   messages: ChatMessage[];
@@ -21,6 +23,7 @@ type MessageListProps = {
   onLoadOlder: () => void;
   onEdit: (message: ChatMessage) => void;
   onRegenerate: () => void;
+  toolsByMessage?: Record<number, AgentToolCard[]>;
 };
 
 const Markdown = lazy(() =>
@@ -36,6 +39,7 @@ export function MessageList({
   onLoadOlder,
   onEdit,
   onRegenerate,
+  toolsByMessage,
 }: MessageListProps) {
   const { t, i18n } = useTranslation();
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -120,6 +124,7 @@ export function MessageList({
               <MessageBubble
                 message={message}
                 locale={i18n.language}
+                tools={toolsByMessage?.[message.id] ?? []}
                 onEdit={
                   message.role === "user" && !actionsDisabled
                     ? () => onEdit(message)
@@ -154,6 +159,7 @@ function Divider({ model }: { model: string }) {
 type MessageBubbleProps = {
   message: ChatMessage;
   locale: string;
+  tools: AgentToolCard[];
   onEdit?: (() => void) | undefined;
   onRegenerate?: (() => void) | undefined;
 };
@@ -161,6 +167,7 @@ type MessageBubbleProps = {
 const MessageBubble = memo(function MessageBubble({
   message,
   locale,
+  tools,
   onEdit,
   onRegenerate,
 }: MessageBubbleProps) {
@@ -205,6 +212,7 @@ const MessageBubble = memo(function MessageBubble({
             </p>
           </div>
         ) : null}
+        {!isUser ? <AgentActivity tools={tools} /> : null}
         {message.content ? (
           isUser ? (
             <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.6]">

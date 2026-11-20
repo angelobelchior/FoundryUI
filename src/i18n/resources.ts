@@ -7,11 +7,13 @@ import { permissionsEnglish, permissionsPortuguese, permissionsSpanish } from ".
 import { contextEnglish, contextPortuguese, contextSpanish } from "./context";
 import { snapshotsEnglish, snapshotsPortuguese, snapshotsSpanish } from "./snapshots";
 import { recoveryEnglish, recoveryPortuguese, recoverySpanish } from "./recovery";
+import { agentEnglish, agentPortuguese, agentSpanish } from "./agent";
+import { editorEnglish, editorPortuguese, editorSpanish } from "./editor";
 
 export const resources = {
-  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish, permissions: permissionsEnglish, context: contextEnglish, snapshots: snapshotsEnglish, recovery: recoveryEnglish } },
-  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese, permissions: permissionsPortuguese, context: contextPortuguese, snapshots: snapshotsPortuguese, recovery: recoveryPortuguese } },
-  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish, permissions: permissionsSpanish, context: contextSpanish, snapshots: snapshotsSpanish, recovery: recoverySpanish } },
+  en: { translation: { ...en, execution: executionEnglish, access: accessEnglish, permissions: permissionsEnglish, context: contextEnglish, snapshots: snapshotsEnglish, recovery: recoveryEnglish, agent: agentEnglish, editor: editorEnglish } },
+  "pt-BR": { translation: { ...ptBR, execution: executionPortuguese, access: accessPortuguese, permissions: permissionsPortuguese, context: contextPortuguese, snapshots: snapshotsPortuguese, recovery: recoveryPortuguese, agent: agentPortuguese, editor: editorPortuguese } },
+  es: { translation: { ...es, execution: executionSpanish, access: accessSpanish, permissions: permissionsSpanish, context: contextSpanish, snapshots: snapshotsSpanish, recovery: recoverySpanish, agent: agentSpanish, editor: editorSpanish } },
 };
 
 export type TranslationSchema = typeof resources.en.translation;

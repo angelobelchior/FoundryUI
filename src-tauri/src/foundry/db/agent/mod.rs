@@ -27,7 +27,7 @@ pub use context_cycle::{
     ContextCycleOperation, ContextCyclePlan, ContextCycleResult, ProjectRemovalMode,
 };
 pub use execution::{ExecutionEvent, ExecutionRun};
-pub use history::{ActionRecord, ActionState, AgentEventState, HistoryContent, HistoryEntry};
+pub use history::{ActionRecord, ActionState, AgentEventState, AgentToolCard, AgentTurn, HistoryContent, HistoryEntry};
 pub use instructions::{
     InstructionDiscovery, InstructionOmission, InstructionOmissionReason, InstructionPreview,
     InstructionSource, InstructionStatus, InstructionTarget,

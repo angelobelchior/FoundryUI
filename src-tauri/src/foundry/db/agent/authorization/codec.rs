@@ -176,6 +176,16 @@ pub(super) fn requirement_display(
         .map(|facts| target_preview(&facts.action.resources))
         .transpose()?
         .unwrap_or_default();
+    let diff = facts
+        .map(|facts| {
+            change_diff(
+                connection,
+                facts.action.key.context.conversation_id,
+                facts.action.key.action_id,
+            )
+        })
+        .transpose()?
+        .flatten();
     let mut preview_available = false;
     let (kind, target, protected) = match &prompt.requirement {
         p::Requirement::Operation => (
@@ -230,6 +240,7 @@ pub(super) fn requirement_display(
             )
         }
         p::Requirement::AlterationReview { change_id } => {
+            preview_available = diff.is_some();
             let recovery_label = match facts.map(|facts| &facts.recovery) {
                 Some(p::Recovery::Protected { protection_id }) => {
                     format!("Recovery protected: {}", identity_label(protection_id)?)
@@ -297,7 +308,29 @@ pub(super) fn requirement_display(
         remember_eligible: prompt.remember == p::Remember::Conversation,
         recovery_guaranteed: protected,
         preview_available,
+        diff,
     })
+}
+
+fn change_diff(
+    connection: &Connection,
+    conversation_id: i64,
+    action_id: i64,
+) -> AgentStoreResult<Option<String>> {
+    let key = format!("change-{action_id}");
+    let diff: Option<String> = connection
+        .query_row(
+            "SELECT json_extract(payload_json, '$.diff')
+             FROM agent_context_facts
+             WHERE conversation_id = ?1 AND fact_key = ?2
+               AND json_extract(payload_json, '$.kind') = 'change_set'
+             ORDER BY id DESC LIMIT 1",
+            params![conversation_id, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(store_error)?;
+    Ok(diff)
 }
 
 fn identity_label(value: &str) -> AgentStoreResult<String> {
@@ -447,6 +480,7 @@ pub(super) fn decode_display(display: &str) -> AgentStoreResult<RequirementDispl
     if display.target.len() > 4096 || display.target.chars().any(char::is_control) {
         return Err(AgentStoreError::Storage);
     }
-    display.preview_available &= display.kind == RequirementKind::StandaloneRoot;
+    display.preview_available &= display.kind == RequirementKind::StandaloneRoot
+        || (display.kind == RequirementKind::AlterationReview && display.diff.is_some());
     Ok(display)
 }

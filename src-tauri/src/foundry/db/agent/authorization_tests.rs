@@ -2043,3 +2043,33 @@ fn revocation_and_dispatch_are_one_serialized_barrier_across_connections() {
     }
     assert!(!receipt.automatically_cancelled);
 }
+
+#[test]
+fn category_toggles_are_persisted_and_bump_the_authorization_revision() {
+    let (database, _directory, _root, conversation) = fixture();
+    let store = database.agent_store();
+    let before = store.category_permissions().unwrap();
+    assert!(before.read_auto);
+    assert!(!before.edit_auto);
+    assert!(!before.command_auto);
+    assert!(!before.network_auto);
+    let revision_before = store.authorization_revision(conversation).unwrap();
+    store
+        .set_authorization_categories(p::CategoryPermissions {
+            read_auto: false,
+            edit_auto: true,
+            command_auto: true,
+            network_auto: true,
+        })
+        .unwrap();
+    let after = store.category_permissions().unwrap();
+    assert!(!after.read_auto);
+    assert!(after.edit_auto);
+    assert!(after.command_auto);
+    assert!(after.network_auto);
+    let revision_after = store.authorization_revision(conversation).unwrap();
+    assert_eq!(
+        revision_after.key().authorization_revision,
+        revision_before.key().authorization_revision + 1
+    );
+}

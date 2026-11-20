@@ -37,6 +37,24 @@
       "ProjectInvalidSelection": "Escolha uma pasta existente e acessível.",
       "ProjectDialogUnavailable": "O seletor nativo de pasta está indisponível. Tente novamente no aplicativo desktop.",
       "ProjectNotReady": "Os serviços de projetos não estão prontos. Tente novamente."
+    },
+    "files": {
+      "title": "Arquivos do projeto",
+      "mention": "Mencionar arquivo",
+      "attach": "Anexar como texto",
+      "open": "Abrir arquivo",
+      "refresh": "Atualizar",
+      "search": "Buscar",
+      "closeSearch": "Fechar busca",
+      "searchPlaceholder": "Buscar arquivos ou conteúdo…",
+      "searchHint": "Digite ao menos 2 caracteres.",
+      "searchEmpty": "Nenhum resultado.",
+      "searchTruncated": "Resultados truncados (limite atingido).",
+      "searchError": "Não foi possível buscar.",
+      "clearSearch": "Limpar busca",
+      "loadError": "Não foi possível listar esta pasta.",
+      "empty": "Esta pasta está vazia.",
+      "noProject": "Abra um projeto para referenciar seus arquivos."
     }
   },
   "rail": {
@@ -163,6 +181,7 @@
     "attachTooMany": "Uma mensagem aceita até {{count}} imagens.",
     "attachTooLarge": "Cada imagem deve ter menos de {{size}} MB.",
     "attachUnsupported": "Só é possível anexar imagens PNG, JPEG, GIF ou WebP.",
+    "mentionFile": "Referenciar arquivo do projeto",
     "details": "Parâmetros usados",
     "hideDetails": "Ocultar parâmetros",
     "roles": {
@@ -287,6 +306,7 @@
       "load": "Carregar",
       "download": "Baixar",
       "downloading": "Baixando…",
+      "loading": "Carregando…",
       "retryDownload": "Tentar de novo",
       "empty": "Nenhum modelo disponível"
     },

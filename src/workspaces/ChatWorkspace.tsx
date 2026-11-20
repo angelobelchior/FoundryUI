@@ -78,12 +78,16 @@ import { errorLabel } from "./models/format";
 import { Composer } from "./chat/Composer";
 import { ConversationList } from "./chat/ConversationList";
 import { ExportMenu } from "./chat/ExportMenu";
+import { ProjectFilesPanel } from "./chat/ProjectFilesPanel";
+import { EditorPanel } from "./chat/editor/EditorPanel";
+import { useEditorTabs } from "./chat/editor/useEditorTabs";
 import { MessageList } from "./chat/MessageList";
 import { ModelMenu, type ChatModelOption } from "./chat/ModelMenu";
 import { ParamsPopover } from "./chat/ParamsPopover";
 import { SearchPanel, type SearchScope } from "./chat/SearchPanel";
 import { TokenUsageBadge } from "./chat/TokenUsageBadge";
 import { projectApi, type ChatProject, type ProjectConversation, type ProjectFolderSelection } from "../lib/projects";
+import { agentApi, type AgentTurn, type AgentToolCard } from "../lib/agent";
 import { ProjectNavigation, ProjectsPanel } from "./chat/ProjectsPanel";
 import { ProjectContext } from "./chat/ProjectContext";
 import { ProjectMoveDialog } from "./chat/ProjectMoveDialog";
@@ -192,12 +196,33 @@ export function ChatWorkspace({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [jumpNonce, setJumpNonce] = useState(0);
   const selected = conversations?.find((conversation) => conversation.id === selectedId) ?? null;
+  const [agentTurns, setAgentTurns] = useState<AgentTurn[]>([]);
   const refreshAgentMessages = useCallback((id: number) => {
     void listMessages(id, null, THREAD_PAGE_SIZE).then((page) => {
       if (selectedIdRef.current === id) setMessages((current) => mergeMessages(current, page.messages));
     }).catch(() => {});
+    void agentApi.turns(id).then((turns) => {
+      if (selectedIdRef.current === id) setAgentTurns(turns);
+    }).catch(() => {});
   }, []);
   const agent = useAgentExecution(selectedId, refreshAgentMessages);
+  const editor = useEditorTabs();
+  useEffect(() => {
+    if (selectedId === null) {
+      setAgentTurns([]);
+      return;
+    }
+    let live = true;
+    void agentApi.turns(selectedId).then((turns) => {
+      if (live && selectedIdRef.current === selectedId) setAgentTurns(turns);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [selectedId]);
+  const toolsByMessage = useMemo(() => {
+    const map: Record<number, AgentToolCard[]> = {};
+    for (const turn of agentTurns) map[turn.messageId] = turn.tools;
+    return map;
+  }, [agentTurns]);
   const agentCompatible = (catalog ?? []).some((model) =>
     (model.alias === selected?.modelAlias || model.id === selected?.modelAlias) && model.supportsToolCalling,
   );
@@ -228,7 +253,7 @@ export function ChatWorkspace({
     inputModalities !== null &&
     inputModalities.origin !== "notDeclared" &&
     !(inputModalities.value ?? []).includes("image");
-  const attachEnabled = !attachBlocked && active === null && !sending && !agent.enabled && !agent.busy;
+  const attachEnabled = !attachBlocked && active === null && !sending && !agentCompatible && !agent.busy;
   const attachHint = attachBlocked
     ? t("chat.attachDisabled")
     : notDeclared
@@ -253,6 +278,9 @@ export function ChatWorkspace({
         if (document.querySelector('[role="dialog"]')) {
           return;
         }
+        if (selectedProject) {
+          return;
+        }
 
         event.preventDefault();
         setSearchOpen(true);
@@ -263,7 +291,7 @@ export function ChatWorkspace({
     window.addEventListener("keydown", onKeyDown, true);
 
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [selectedProject]);
 
   useEffect(() => {
     if (!searchOpen) {
@@ -827,6 +855,22 @@ export function ChatWorkspace({
     setDrafts((current) => ({ ...current, [selectedId]: value }));
   }
 
+  function mentionProjectFile(path: string) {
+    if (selectedId === null) {
+      return;
+    }
+
+    const reference = `@${path}`;
+    const trimmed = draft.trimEnd();
+    updateDraft(trimmed ? `${trimmed} ${reference}` : reference);
+  }
+
+  function openProjectFile(path: string) {
+    if (selectedProject) {
+      void editor.openFile(selectedProject.id, path);
+    }
+  }
+
   async function refreshConversations(navigation: number) {
     await loadScopeConversations(projectId, archivedView, navigation);
   }
@@ -1109,7 +1153,7 @@ export function ChatWorkspace({
     try {
       await ensureConversationModelLoaded(selected);
 
-      if (agent.enabled) {
+      if (agentCompatible) {
         if (tokens.length > 0) return;
         const receipt = await agent.start(content);
         setDrafts((current) => ({ ...current, [conversationId]: "" }));
@@ -1683,7 +1727,6 @@ export function ChatWorkspace({
       <ExecutionPopover
         agent={agent}
         compatible={agentCompatible}
-        disabled={active !== null || sending}
         hasAttachments={attachments.length > 0}
       />
     </>
@@ -1856,41 +1899,54 @@ export function ChatWorkspace({
             onSelect={selectProject}
             onRetry={() => void reloadProjects()}
           />
-        ) : conversations === null ? (
-          <div className="flex justify-center py-6">
-            <Spinner size={14} className="text-tertiary" />
-          </div>
-        ) : conversations.length === 0 ? (
-          <ListEmpty
-            icon={archivedView ? ArchiveIcon : ChatIcon}
-            title={
-              archivedView ? t("chat.archivedEmptyTitle") : t("chat.listEmptyTitle")
-            }
-            body={archivedView ? t("chat.archivedEmptyBody") : t("chat.listEmptyBody")}
-          />
-        ) : filteredConversations.length === 0 ? (
-          <ListEmpty
-            icon={SearchIcon}
-            title={t("chat.listNoMatchesTitle")}
-            body={t("chat.listNoMatchesBody")}
-          />
         ) : (
-          <ConversationList
-            conversations={filteredConversations}
-            selectedId={selectedId}
-            streamingConversationId={streamingConversationId}
-            disabled={active !== null}
-            archivedView={archivedView}
-            onSelect={selectConversation}
-            onToggleFavorite={(conversation) => void toggleFavorite(conversation)}
-            onToggleArchive={(conversation) => void toggleArchived(conversation)}
-            onRequestDelete={setDeleteTarget}
-          />
+          <>
+            {selectedProject ? (
+              <ProjectFilesPanel
+                projectId={selectedProject.id}
+                onOpen={openProjectFile}
+                onAttachText={mentionProjectFile}
+              />
+            ) : null}
+            {conversations === null ? (
+              <div className="flex justify-center py-6">
+                <Spinner size={14} className="text-tertiary" />
+              </div>
+            ) : conversations.length === 0 ? (
+              <ListEmpty
+                icon={archivedView ? ArchiveIcon : ChatIcon}
+                title={
+                  archivedView ? t("chat.archivedEmptyTitle") : t("chat.listEmptyTitle")
+                }
+                body={archivedView ? t("chat.archivedEmptyBody") : t("chat.listEmptyBody")}
+              />
+            ) : filteredConversations.length === 0 ? (
+              <ListEmpty
+                icon={SearchIcon}
+                title={t("chat.listNoMatchesTitle")}
+                body={t("chat.listNoMatchesBody")}
+              />
+            ) : (
+              <ConversationList
+                conversations={filteredConversations}
+                selectedId={selectedId}
+                streamingConversationId={streamingConversationId}
+                disabled={active !== null}
+                archivedView={archivedView}
+                onSelect={selectConversation}
+                onToggleFavorite={(conversation) => void toggleFavorite(conversation)}
+                onToggleArchive={(conversation) => void toggleArchived(conversation)}
+                onRequestDelete={setDeleteTarget}
+              />
+            )}
+          </>
         )}
       </ContextList>
 
-      {selected ? (
-        <section className="flex h-full min-h-0 min-w-0 flex-col bg-canvas">
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <EditorPanel editor={editor} />
+        {selected ? (
+          <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-canvas">
           <header
             className="flex h-[var(--titlebar-inset)] shrink-0 items-center justify-between gap-3 border-b border-line px-5"
             data-tauri-drag-region
@@ -1991,6 +2047,7 @@ export function ChatWorkspace({
               onLoadOlder={() => void loadOlder()}
               onEdit={startEdit}
               onRegenerate={() => setRegenerateOpen(true)}
+              toolsByMessage={toolsByMessage}
             />
           )}
 
@@ -2000,6 +2057,7 @@ export function ChatWorkspace({
             active={active !== null || agent.busy}
             stopping={stopping || agent.stopping}
             modelLabel={selected.modelAlias}
+            projectId={projectId}
             attachments={attachments}
             attachEnabled={attachEnabled}
             attachHint={attachHint}
@@ -2010,9 +2068,9 @@ export function ChatWorkspace({
             onRemoveAttachment={removeAttachment}
             controls={composerControls}
           />
-        </section>
-      ) : (
-        <section className="flex h-full min-h-0 min-w-0 flex-col bg-canvas">
+          </section>
+        ) : (
+          <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-canvas">
           <header
             className="flex h-[var(--titlebar-inset)] shrink-0 items-center border-b border-line px-5"
             data-tauri-drag-region
@@ -2050,7 +2108,8 @@ export function ChatWorkspace({
               : {})}
           />
         </section>
-      )}
+        )}
+      </div>
 
       {projectFolderSelection ? (
         <ProjectCreateDialog

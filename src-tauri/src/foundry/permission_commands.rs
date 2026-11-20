@@ -23,6 +23,7 @@ pub struct RequirementView {
     pub remember_eligible: bool,
     pub recovery_guaranteed: bool,
     pub preview_available: bool,
+    pub diff: Option<String>,
 }
 
 impl From<RequirementDisplay> for RequirementView {
@@ -34,6 +35,7 @@ impl From<RequirementDisplay> for RequirementView {
             remember_eligible: display.remember_eligible,
             recovery_guaranteed: display.recovery_guaranteed,
             preview_available: display.preview_available,
+            diff: display.diff,
         }
     }
 }
@@ -177,17 +179,8 @@ struct PermissionMessages {
     root_title: String,
     grant_root: String,
     root_notice: String,
-    decision_title: String,
-    allow_once: String,
-    allow_remember: String,
-    remember_notice: String,
-    once_notice: String,
-    recovery_unavailable: String,
-    recovery_declared: String,
     cancel: String,
     conversation: String,
-    request: String,
-    fingerprint: String,
 }
 
 fn messages(language: Option<&str>) -> AgentCommandResult<PermissionMessages> {
@@ -301,13 +294,11 @@ pub async fn authorization_pick_root(
 }
 
 #[tauri::command]
-pub async fn authorization_decide(
-    app: AppHandle,
+pub fn authorization_decide(
     state: State<'_, AppState>,
     conversation_id: i64,
     request_id: i64,
     decision: RequestDecision,
-    language: Option<String>,
 ) -> AgentCommandResult<Option<DecisionReceiptView>> {
     let database = database(&state)?;
     if let RequestDecision::Approve { remember } = decision {
@@ -336,64 +327,70 @@ pub async fn authorization_decide(
         {
             return Err(AgentStoreError::InvalidInput.into());
         }
-        let text = messages(language.as_deref())?;
-        let conversation = database
-            .conversation(conversation_id)
-            .map_err(|_| AgentStoreError::NotFound)?;
-        let targets = request
-            .requirements
-            .iter()
-            .map(|requirement| {
-                let recovery = if requirement.recovery_guaranteed {
-                    &text.recovery_declared
-                } else {
-                    &text.recovery_unavailable
-                };
-                format!(
-                    "{}\n{}: {}\n{}",
-                    single_line(&requirement.target),
-                    text.fingerprint,
-                    requirement.constraints_fingerprint,
-                    recovery
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let notice = if remember {
-            &text.remember_notice
-        } else {
-            &text.once_notice
-        };
-        let accept = if remember {
-            &text.allow_remember
-        } else {
-            &text.allow_once
-        };
-        let body = format!(
-            "{}: #{} — {}\n{} #{} / action #{}\n\n{}\n\n{}",
-            text.conversation,
-            conversation_id,
-            single_line(&conversation.title),
-            text.request,
-            request_id,
-            request.action_id,
-            targets,
-            notice
-        );
-        let answer = native_choice(
-            &app,
-            &text.decision_title,
-            body,
-            MessageDialogButtons::OkCancelCustom(accept.clone(), text.cancel),
-        )
-        .await?;
-        if !matches!(answer, MessageDialogResult::Custom(label) if label == *accept) {
-            return Ok(None);
-        }
     }
     database
         .agent_store()
         .decide_request(conversation_id, request_id, decision)
         .map(|receipt| Some(receipt.into()))
         .map_err(Into::into)
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryPermissionsView {
+    pub read_auto: bool,
+    pub edit_auto: bool,
+    pub command_auto: bool,
+    pub network_auto: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryPermissionsInput {
+    pub read_auto: bool,
+    pub edit_auto: bool,
+    pub command_auto: bool,
+    pub network_auto: bool,
+}
+
+impl From<crate::foundry::policy::CategoryPermissions> for CategoryPermissionsView {
+    fn from(categories: crate::foundry::policy::CategoryPermissions) -> Self {
+        Self {
+            read_auto: categories.read_auto,
+            edit_auto: categories.edit_auto,
+            command_auto: categories.command_auto,
+            network_auto: categories.network_auto,
+        }
+    }
+}
+
+impl From<CategoryPermissionsInput> for crate::foundry::policy::CategoryPermissions {
+    fn from(input: CategoryPermissionsInput) -> Self {
+        Self {
+            read_auto: input.read_auto,
+            edit_auto: input.edit_auto,
+            command_auto: input.command_auto,
+            network_auto: input.network_auto,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn authorization_categories(
+    state: State<'_, AppState>,
+) -> AgentCommandResult<CategoryPermissionsView> {
+    let database = state.database().map_err(|_| AgentCommandError::NotReady)?;
+    Ok(database.agent_store().category_permissions()?.into())
+}
+
+#[tauri::command]
+pub fn authorization_set_categories(
+    state: State<'_, AppState>,
+    categories: CategoryPermissionsInput,
+) -> AgentCommandResult<CategoryPermissionsView> {
+    let database = state.database().map_err(|_| AgentCommandError::NotReady)?;
+    database
+        .agent_store()
+        .set_authorization_categories(categories.into())?;
+    Ok(database.agent_store().category_permissions()?.into())
 }

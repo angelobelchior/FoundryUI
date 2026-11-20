@@ -376,6 +376,41 @@
   line-height: 1.55;
 }
 
+.editor-highlight .shiki {
+  margin: 0;
+  padding: 12px 14px;
+  background: transparent !important;
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 21px;
+  tab-size: 4;
+}
+
+.editor-input {
+  border: none;
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 21px;
+  padding: 12px 14px;
+  tab-size: 4;
+  white-space: pre;
+  color: transparent;
+  caret-color: var(--text-primary);
+}
+
+.editor-gutter {
+  padding-top: 12px;
+}
+
+.editor-gutter-line {
+  height: 21px;
+  padding-right: 10px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 21px;
+  color: var(--text-tertiary);
+}
+
 .markdown .md-tail {
   white-space: pre-wrap;
 }

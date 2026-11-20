@@ -123,6 +123,15 @@ export function DownloadIcon(props: IconProps) {
   );
 }
 
+export function LoadIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M10 12.2V3.4M6.7 6.7 10 3.4l3.3 3.3" />
+      <path d="M3.8 13.6v1.6a1.6 1.6 0 0 0 1.6 1.6h9.2a1.6 1.6 0 0 0 1.6-1.6v-1.6" />
+    </Svg>
+  );
+}
+
 export function PlayIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -278,6 +287,15 @@ export function PaperclipIcon(props: IconProps) {
   );
 }
 
+export function FileIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M11.2 3.2H5.6a1.4 1.4 0 0 0-1.4 1.4v10.8a1.4 1.4 0 0 0 1.4 1.4h8.8a1.4 1.4 0 0 0 1.4-1.4V7.2z" />
+      <path d="M11.2 3.2v4h4" />
+    </Svg>
+  );
+}
+
 export function SlidersIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -297,6 +315,101 @@ export function ToolsIcon(props: IconProps) {
           d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
         />
       </g>
+    </Svg>
+  );
+}
+
+export function GitBranchIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 3.5v10.5" />
+      <circle cx="6" cy="16.5" r="2" />
+      <circle cx="16.5" cy="6" r="2" />
+      <path d="M16.5 8a8.5 8.5 0 0 1-8.5 8.5" />
+    </Svg>
+  );
+}
+
+export function PackageIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 6.8 10 3.4l6.5 3.4v6.4L10 16.6l-6.5-3.4z" />
+      <path d="M3.5 6.8 10 10l6.5-3.2M10 10v6.6" />
+    </Svg>
+  );
+}
+
+export function CodeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m7 6-4 4 4 4" />
+      <path d="m13 6 4 4-4 4" />
+    </Svg>
+  );
+}
+
+export function JsonIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7.2 3.8c-1.3 0-1.9.5-1.9 1.5v1.6c0 .8-.3 1.2-1.3 1.3v1.2c1 .1 1.3.5 1.3 1.3v1.6c0 1 .6 1.5 1.9 1.5" />
+      <path d="M12.8 3.8c1.3 0 1.9.5 1.9 1.5v1.6c0 .8.3 1.2 1.3 1.3v1.2c-1 .1-1.3.5-1.3 1.3v1.6c0 1-.6 1.5-1.9 1.5" />
+    </Svg>
+  );
+}
+
+export function BookIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.6 5.6a1.9 1.9 0 0 1 1.9-1.9H10v12.6H5.5a1.9 1.9 0 0 0-1.9 1.9z" />
+      <path d="M16.4 5.6a1.9 1.9 0 0 0-1.9-1.9H10v12.6h4.5a1.9 1.9 0 0 1 1.9 1.9z" />
+    </Svg>
+  );
+}
+
+export function ContainerIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.6" y="10.5" width="12.8" height="6" rx="1.6" />
+      <path d="M3.6 12.6h12.8M6.5 10.5V8.2M10 10.5V8.2M13.5 10.5V8.2" />
+      <rect x="6.5" y="4.2" width="3" height="4" rx="0.8" />
+      <rect x="10" y="4.2" width="3" height="4" rx="0.8" />
+    </Svg>
+  );
+}
+
+export function LockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.8" y="9.4" width="10.4" height="7" rx="1.9" />
+      <path d="M7 9.4V6.9a3 3 0 0 1 6 0v2.5" />
+    </Svg>
+  );
+}
+
+export function ImageIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.4" y="4.4" width="13.2" height="11.2" rx="2" />
+      <circle cx="7.6" cy="8.4" r="1.3" />
+      <path d="m5 14 3.4-3.4 2.4 2.4 1.9-1.9 2.3 2.9" />
+    </Svg>
+  );
+}
+
+export function TerminalIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m5.2 6.2 4 3.8-4 3.8" />
+      <path d="M11.2 13.8h3.8" />
+    </Svg>
+  );
+}
+
+export function GearIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="10" cy="10" r="2.7" />
+      <path d="M10 2.9v2.1M10 15v2.1M2.9 10h2.1M15 10h2.1M5 5l1.5 1.5M13.5 13.5 15 15M15 5l-1.5 1.5M6.5 13.5 5 15" />
     </Svg>
   );
 }

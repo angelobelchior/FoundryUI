@@ -37,6 +37,24 @@
       "ProjectInvalidSelection": "Choose an existing, accessible folder.",
       "ProjectDialogUnavailable": "The native folder dialog is unavailable. Try again in the desktop app.",
       "ProjectNotReady": "Project services are not ready. Try again."
+    },
+    "files": {
+      "title": "Project files",
+      "mention": "Mention file",
+      "attach": "Attach as text",
+      "open": "Open file",
+      "refresh": "Refresh",
+      "search": "Search",
+      "closeSearch": "Close search",
+      "searchPlaceholder": "Search files or content…",
+      "searchHint": "Type at least 2 characters.",
+      "searchEmpty": "No results.",
+      "searchTruncated": "Results truncated (limit reached).",
+      "searchError": "Could not search.",
+      "clearSearch": "Clear search",
+      "loadError": "Could not list this folder.",
+      "empty": "This folder is empty.",
+      "noProject": "Open a project to reference its files."
     }
   },
   "rail": {
@@ -163,6 +181,7 @@
     "attachTooMany": "A message accepts up to {{count}} images.",
     "attachTooLarge": "Each image must be under {{size}} MB.",
     "attachUnsupported": "Only PNG, JPEG, GIF and WebP images can be attached.",
+    "mentionFile": "Reference a project file",
     "details": "Parameters used",
     "hideDetails": "Hide parameters",
     "roles": {
@@ -287,6 +306,7 @@
       "load": "Load",
       "download": "Download",
       "downloading": "Downloading…",
+      "loading": "Loading…",
       "retryDownload": "Retry",
       "empty": "No models available"
     },

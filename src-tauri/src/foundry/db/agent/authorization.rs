@@ -45,6 +45,8 @@ pub struct RequirementDisplay {
     pub recovery_guaranteed: bool,
     #[serde(default)]
     pub preview_available: bool,
+    #[serde(default)]
+    pub diff: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -99,6 +101,7 @@ pub struct AuthorizationRevision {
     project_root_id: Option<String>,
     project_fingerprint: String,
     global_read_allowed: bool,
+    categories: p::CategoryPermissions,
 }
 
 impl AuthorizationRevision {
@@ -113,6 +116,9 @@ impl AuthorizationRevision {
     }
     pub fn global_read_allowed(&self) -> bool {
         self.global_read_allowed
+    }
+    pub fn categories(&self) -> p::CategoryPermissions {
+        self.categories
     }
 }
 
@@ -199,6 +205,40 @@ impl AgentStore<'_> {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(store_error)?;
         let changed = tx.execute("UPDATE agent_authorization_settings SET read_allowed = ?1 WHERE id = 1 AND read_allowed != ?1", [allowed]).map_err(store_error)?;
+        if changed != 0 {
+            tx.execute("INSERT OR IGNORE INTO agent_authorization_revisions(conversation_id) SELECT conversation_id FROM agent_contexts", []).map_err(store_error)?;
+            tx.execute("UPDATE agent_authorization_revisions SET authorization_revision = authorization_revision + 1", []).map_err(store_error)?;
+        }
+        tx.commit().map_err(store_error)
+    }
+
+    pub fn category_permissions(&self) -> AgentStoreResult<p::CategoryPermissions> {
+        self.database
+            .connection()
+            .query_row(
+                "SELECT read_allowed, edit_auto, command_auto, network_auto FROM agent_authorization_settings WHERE id = 1",
+                [],
+                |r| {
+                    Ok(p::CategoryPermissions {
+                        read_auto: r.get(0)?,
+                        edit_auto: r.get(1)?,
+                        command_auto: r.get(2)?,
+                        network_auto: r.get(3)?,
+                    })
+                },
+            )
+            .map_err(store_error)
+    }
+
+    pub fn set_authorization_categories(
+        &self,
+        categories: p::CategoryPermissions,
+    ) -> AgentStoreResult<()> {
+        let mut connection = self.database.connection();
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(store_error)?;
+        let changed = tx.execute("UPDATE agent_authorization_settings SET read_allowed = ?1, edit_auto = ?2, command_auto = ?3, network_auto = ?4 WHERE id = 1 AND (read_allowed != ?1 OR edit_auto != ?2 OR command_auto != ?3 OR network_auto != ?4)", params![categories.read_auto, categories.edit_auto, categories.command_auto, categories.network_auto]).map_err(store_error)?;
         if changed != 0 {
             tx.execute("INSERT OR IGNORE INTO agent_authorization_revisions(conversation_id) SELECT conversation_id FROM agent_contexts", []).map_err(store_error)?;
             tx.execute("UPDATE agent_authorization_revisions SET authorization_revision = authorization_revision + 1", []).map_err(store_error)?;
@@ -413,7 +453,7 @@ impl AgentStore<'_> {
             facts.denied_actions.push(facts.action.clone());
         }
         materialize_grants(&tx, &current, &mut facts)?;
-        let decision = p::evaluate(&facts.action, &facts);
+        let decision = p::evaluate_with(&facts.action, &facts, current.categories);
         let (status, denial, prompts) = match decision {
             p::Decision::Allow => ("ready", None, vec![]),
             p::Decision::Ask(prompts) => ("pending", None, prompts),
@@ -712,8 +752,8 @@ impl AgentStore<'_> {
             return Err(AgentStoreError::Conflict);
         }
         materialize_grants(&tx, &current, &mut facts)?;
-        materialize_approvals(&tx, &mut facts)?;
-        if p::evaluate(&facts.action, &facts) != p::Decision::Allow {
+        materialize_approvals(&tx, &mut facts, current.categories)?;
+        if p::evaluate_with(&facts.action, &facts, current.categories) != p::Decision::Allow {
             return Err(AgentStoreError::InvalidTransition);
         }
         tx.execute("UPDATE agent_actions SET state = 'approved', updated_at = ?2 WHERE id = ?1 AND state = 'proposed'", params![record.id, now_millis()]).map_err(store_error)?;
@@ -734,13 +774,14 @@ fn revision(
     authority_instance: &Arc<()>,
 ) -> AgentStoreResult<AuthorizationRevision> {
     let (context_revision, mode, auth, mode_revision, project_id, root, binding): (i64,String,i64,i64,Option<i64>,Option<String>,Option<i64>) = connection.query_row("SELECT c.context_revision, c.mode, COALESCE(r.authorization_revision,0), COALESCE(r.mode_revision,0), c.project_id, p.root_identity_key, p.binding_revision FROM agent_contexts c LEFT JOIN agent_authorization_revisions r ON r.conversation_id = c.conversation_id LEFT JOIN agent_projects p ON p.id = c.project_id WHERE c.conversation_id = ?1", [conversation_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional().map_err(store_error)?.ok_or(AgentStoreError::NotFound)?;
-    let read_allowed = connection
-        .query_row(
-            "SELECT read_allowed FROM agent_authorization_settings WHERE id = 1",
-            [],
-            |r| r.get(0),
-        )
-        .map_err(store_error)?;
+    let (read_allowed, edit_auto, command_auto, network_auto): (bool, bool, bool, bool) =
+        connection
+            .query_row(
+                "SELECT read_allowed, edit_auto, command_auto, network_auto FROM agent_authorization_settings WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(store_error)?;
     Ok(AuthorizationRevision {
         authority_instance: authority_instance.clone(),
         key: p::ContextKey {
@@ -754,6 +795,12 @@ fn revision(
         project_fingerprint: fingerprint(&json!([project_id, root, binding]))?,
         project_root_id: root,
         global_read_allowed: read_allowed,
+        categories: p::CategoryPermissions {
+            read_auto: read_allowed,
+            edit_auto,
+            command_auto,
+            network_auto,
+        },
     })
 }
 
@@ -935,7 +982,7 @@ fn materialize_grants(
     current: &AuthorizationRevision,
     facts: &mut p::TrustedFacts,
 ) -> AgentStoreResult<()> {
-    let prompts = possible_prompts(facts);
+    let prompts = possible_prompts(facts, current.categories);
     for prompt in prompts {
         if prompt.remember != p::Remember::Conversation {
             continue;
@@ -955,8 +1002,9 @@ fn materialize_grants(
 fn materialize_approvals(
     connection: &Connection,
     facts: &mut p::TrustedFacts,
+    categories: p::CategoryPermissions,
 ) -> AgentStoreResult<()> {
-    for prompt in possible_prompts(facts) {
+    for prompt in possible_prompts(facts, categories) {
         let hash = requirement_fingerprint(&prompt.requirement)?;
         let approved: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM agent_authorization_requests WHERE action_id = ?1 AND requirement_fingerprint = ?2 AND response = 'approved')", params![facts.action.key.action_id, hash], |r| r.get(0)).map_err(store_error)?;
         if approved {
@@ -969,12 +1017,15 @@ fn materialize_approvals(
     Ok(())
 }
 
-fn possible_prompts(facts: &p::TrustedFacts) -> Vec<p::Prompt> {
+fn possible_prompts(
+    facts: &p::TrustedFacts,
+    categories: p::CategoryPermissions,
+) -> Vec<p::Prompt> {
     let mut clean = facts.clone();
     clean.approvals.clear();
     clean.grants.clear();
     clean.denied_actions.clear();
-    match p::evaluate(&clean.action, &clean) {
+    match p::evaluate_with(&clean.action, &clean, categories) {
         p::Decision::Ask(prompts) => prompts,
         _ => vec![],
     }

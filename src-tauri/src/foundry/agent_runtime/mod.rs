@@ -7,12 +7,14 @@ mod context_budget;
 mod context_search;
 mod cycle;
 mod instructions;
+mod list_tools;
 mod network_tools;
 mod parser;
 mod provider;
 mod read_tools;
 mod recovery;
 mod schema;
+pub(crate) mod terminal;
 
 use crate::foundry::db::agent::AgentStore;
 pub use approvals::PersistedApprovals;
@@ -42,12 +44,14 @@ pub use context_budget::{
     PlanRequest as ContextPlanRequest, SourceEntry, SourceMode, plan as plan_context,
 };
 pub use context_search::{SearchAuthorizer, SearchExecutor, with_retrieved_context};
+pub use list_tools::{ListAuthorizer, ListExecutor};
 pub use network_tools::{NetworkAuthorizer, NetworkExecutor};
 pub use read_tools::{ReadAuthorizer, ReadExecutor};
 pub use recovery::{RecoverableChange, RecoveryError, RecoveryOutcome, list_recoverable, recover};
 
 pub fn register_agent_tools(registry: &mut ToolRegistry) -> Result<(), ToolSpecError> {
     read_tools::register(registry)?;
+    list_tools::register(registry)?;
     context_search::register(registry)?;
     change_tools::register(registry)?;
     command_tools::register(registry)?;

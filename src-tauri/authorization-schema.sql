@@ -14,7 +14,10 @@ END;
 
 CREATE TABLE IF NOT EXISTS agent_authorization_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  read_allowed INTEGER NOT NULL DEFAULT 1 CHECK (read_allowed IN (0, 1))
+  read_allowed INTEGER NOT NULL DEFAULT 1 CHECK (read_allowed IN (0, 1)),
+  edit_auto INTEGER NOT NULL DEFAULT 0 CHECK (edit_auto IN (0, 1)),
+  command_auto INTEGER NOT NULL DEFAULT 0 CHECK (command_auto IN (0, 1)),
+  network_auto INTEGER NOT NULL DEFAULT 0 CHECK (network_auto IN (0, 1))
 );
 INSERT OR IGNORE INTO agent_authorization_settings(id) VALUES (1);
 

@@ -9,17 +9,16 @@ import type { useAgentExecution } from "./useAgentExecution";
 type ExecutionPopoverProps = {
   agent: ReturnType<typeof useAgentExecution>;
   compatible: boolean;
-  disabled: boolean;
   hasAttachments: boolean;
 };
 
-export function ExecutionPopover({ agent, compatible, disabled, hasAttachments }: ExecutionPopoverProps) {
+export function ExecutionPopover({ agent, compatible, hasAttachments }: ExecutionPopoverProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const { status, enabled, busy, stopping } = agent;
+  const { status, busy, stopping } = agent;
   const pending = (status?.pendingRequests?.length ?? 0) > 0;
-  const emphasized = open || enabled || pending || busy || stopping;
+  const emphasized = open || pending || busy || stopping;
 
   useEffect(() => {
     if (!open) {
@@ -71,7 +70,7 @@ export function ExecutionPopover({ agent, compatible, disabled, hasAttachments }
       >
         <ToolsIcon size={14} />
         <span className="truncate font-medium">{t("execution.tools")}</span>
-        {busy || stopping ? <Spinner size={11} /> : enabled || pending ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+        {busy || stopping ? <Spinner size={11} /> : pending ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
       </button>
       {open ? (
         <div className="pop-in absolute bottom-[calc(100%+4px)] right-0 z-30 flex h-[min(72vh,560px)] w-[min(94vw,640px)] flex-col overflow-hidden rounded-lg border border-line bg-elevated shadow-[var(--shadow-popover)]">
@@ -81,7 +80,6 @@ export function ExecutionPopover({ agent, compatible, disabled, hasAttachments }
           <AgentExecution
             agent={agent}
             compatible={compatible}
-            disabled={disabled}
             hasAttachments={hasAttachments}
           />
         </div>

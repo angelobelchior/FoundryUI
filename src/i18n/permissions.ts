@@ -23,6 +23,15 @@ export const permissionsEnglish = {
   statusApproved: "Approved",
   statusDenied: "Denied",
   previewUnavailable: "Content preview unavailable for this file.",
+  categories: "Automatic approval by category",
+  categoriesHint: "When a category is automatic, actions of that kind are approved without prompting. Scope, isolation, auditability and destructive confirmation are always enforced.",
+  categoryRead: "Reading",
+  categoryEdit: "Editing and creating",
+  categoryCommand: "Commands",
+  categoryNetwork: "Network",
+  categoryAuto: "Automatic",
+  categoryReview: "Ask first",
+  savingCategory: "Saving…",
 };
 
 export const permissionsPortuguese: typeof permissionsEnglish = {
@@ -50,6 +59,15 @@ export const permissionsPortuguese: typeof permissionsEnglish = {
   statusApproved: "Aprovado",
   statusDenied: "Negado",
   previewUnavailable: "Prévia de conteúdo indisponível para este arquivo.",
+  categories: "Aprovação automática por categoria",
+  categoriesHint: "Quando uma categoria é automática, ações desse tipo são aprovadas sem pedir confirmação. Escopo, isolamento, auditabilidade e confirmação destrutiva são sempre aplicados.",
+  categoryRead: "Leitura",
+  categoryEdit: "Edição e criação",
+  categoryCommand: "Comandos",
+  categoryNetwork: "Rede",
+  categoryAuto: "Automático",
+  categoryReview: "Pedir antes",
+  savingCategory: "Salvando…",
 };
 
 export const permissionsSpanish: typeof permissionsEnglish = {
@@ -77,4 +95,13 @@ export const permissionsSpanish: typeof permissionsEnglish = {
   statusApproved: "Aprobado",
   statusDenied: "Denegado",
   previewUnavailable: "La vista previa del contenido no está disponible para este archivo.",
+  categories: "Aprobación automática por categoría",
+  categoriesHint: "Cuando una categoría es automática, las acciones de ese tipo se aprueban sin pedir confirmación. El alcance, el aislamiento, la auditabilidad y la confirmación destructiva siempre se aplican.",
+  categoryRead: "Lectura",
+  categoryEdit: "Edición y creación",
+  categoryCommand: "Comandos",
+  categoryNetwork: "Red",
+  categoryAuto: "Automático",
+  categoryReview: "Pedir antes",
+  savingCategory: "Guardando…",
 };

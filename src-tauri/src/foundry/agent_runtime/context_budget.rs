@@ -56,6 +56,7 @@ pub struct Manifest {
     pub summarized_messages: usize,
     pub omitted_messages: usize,
     pub truncated: bool,
+    pub compacted: bool,
     pub sources: Vec<SourceEntry>,
     pub omissions: Vec<OmissionEntry>,
 }
@@ -227,6 +228,7 @@ pub fn plan(request: PlanRequest) -> Plan {
         summarized_messages: summarized,
         omitted_messages,
         truncated: truncated || omitted_messages > 0 || summarized > 0,
+        compacted: omitted_messages > 0 || summarized > 0,
         sources,
         omissions: omission_entries,
     };
@@ -444,6 +446,7 @@ mod tests {
             plan.manifest.original_messages
         );
         assert!(plan.manifest.truncated);
+        assert!(plan.manifest.compacted);
         assert_eq!(plan.messages.last().unwrap()["content"], "latest question");
         assert_eq!(plan.messages[0]["content"], "policy");
         assert!(
@@ -541,6 +544,7 @@ mod tests {
         });
 
         assert_eq!(plan.manifest.omitted_messages, 0);
+        assert!(!plan.manifest.compacted);
         let roles = plan
             .messages
             .iter()
