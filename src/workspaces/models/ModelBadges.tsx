@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ChatIcon, EmbeddingsIcon, ModelsIcon, SpeechIcon } from "../../components/Icon";
+import { ChatIcon, EmbeddingsIcon, ModelsIcon, SpeechIcon, ToolsIcon } from "../../components/Icon";
 import { Tooltip } from "../../components/Tooltip";
 import { cx } from "../../lib/cx";
 import type { Declared, ModelKind } from "../../lib/foundry";
 
-const kindIcon: Record<ModelKind, (props: { size?: number; className?: string }) => ReactNode> = {
+export const kindIcon: Record<ModelKind, (props: { size?: number; className?: string }) => ReactNode> = {
   chat: ChatIcon,
   multimodal: ModelsIcon,
   speech: SpeechIcon,
@@ -30,6 +30,23 @@ export function ModalityChip({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex h-[21px] items-center rounded-[5px] bg-subtle px-2 text-[11px] font-medium text-secondary">
       {children}
+    </span>
+  );
+}
+
+export function ToolBadge({ supports }: { supports: boolean }) {
+  const { t } = useTranslation();
+
+  return (
+    <span
+      title={supports ? t("models.tools.supported") : t("models.tools.notSupported")}
+      className={cx(
+        "inline-flex h-[17px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[9px] font-medium uppercase tracking-[0.04em]",
+        supports ? "bg-accent/10 text-accent-text" : "bg-subtle text-tertiary",
+      )}
+    >
+      <ToolsIcon size={9} className={supports ? "text-accent" : "text-tertiary"} />
+      {supports ? t("models.tools.supported") : t("models.tools.notSupported")}
     </span>
   );
 }

@@ -249,6 +249,16 @@ const MessageBubble = memo(function MessageBubble({
           <p className="mt-1.5 text-[11px] text-danger">{errorText}</p>
         ) : null}
         <div className={cx("mt-1.5 flex items-center gap-2", isUser ? "justify-end" : null)}>
+          <time
+            dateTime={new Date(message.createdAt).toISOString()}
+            title={formatMessageDate(message.createdAt, locale)}
+            className={cx(
+              "text-[10.5px] tabular-nums",
+              isUser ? "text-accent-contrast/70" : "text-tertiary",
+            )}
+          >
+            {formatMessageTime(message.createdAt, locale)}
+          </time>
           {message.usage && !isUser ? (
             <p className="text-[10.5px] tabular-nums text-tertiary">
               {t("chat.usage", {
@@ -420,4 +430,26 @@ function formatParamValue(field: (typeof paramFields)[number], value: unknown, t
   }
 
   return String(value);
+}
+
+function formatMessageTime(timestamp: number, locale: string): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  const options: Intl.DateTimeFormatOptions = sameDay
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+
+  return new Intl.DateTimeFormat(locale, options).format(date);
+}
+
+function formatMessageDate(timestamp: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
 }

@@ -98,7 +98,7 @@
     "Timeout": "The operation timed out.",
     "Cancelled": "The operation was cancelled.",
     "BadResponse": "The server returned an unexpected response.",
-    "CommandFailed": "The Foundry Local command failed.",
+    "CommandFailed": "The Foundry Local operation failed.",
     "Storage": "Could not access the local database.",
     "UnsupportedImage": "This model does not accept images.",
     "AttachmentRejected": "The image could not be attached.",
@@ -174,7 +174,7 @@
     "copyMessage": "Copy message",
     "copied": "Copied",
     "copyFailed": "Could not copy.",
-    "attach": "Attach image",
+    "attach": "Attach",
     "attachDisabled": "This model does not accept images.",
     "attachNotDeclared": "This model does not declare its input modalities. Images are sent anyway.",
     "removeAttachment": "Remove image",
@@ -283,6 +283,10 @@
     "curatedUnknownSource": "the FoundryUI catalog overlay",
     "yes": "Yes",
     "no": "No",
+    "tools": {
+      "supported": "Tools",
+      "notSupported": "No tools"
+    },
     "tokens": "{{value}} tokens",
     "kinds": {
       "all": "All",

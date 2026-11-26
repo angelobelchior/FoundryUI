@@ -1556,19 +1556,10 @@ mod tests {
     fn verified_fixture_endpoint(
         endpoint: &str,
     ) -> super::super::local_inference::VerifiedLocalEndpoint {
-        use super::super::local_inference::{
-            RuntimeBinding, RuntimeObservation, VerifiedLocalEndpoint,
-        };
-        let binding = RuntimeBinding::default();
-        binding.replace(Some(
-            RuntimeObservation::new(
-                endpoint,
-                std::process::id(),
-                std::env::current_exe().expect("test executable"),
-                1,
-            )
-            .expect("fixture observation"),
-        ));
-        VerifiedLocalEndpoint::verify(&binding).expect("native fixture proof")
+        super::super::local_inference::VerifiedLocalEndpoint::new(
+            endpoint,
+            std::time::Duration::from_secs(5),
+        )
+        .expect("fixture endpoint")
     }
 }

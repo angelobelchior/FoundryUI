@@ -1,6 +1,6 @@
 [package]
 name = "foundryui"
-version = "0.1.0"
+version = "0.1.1-alpha"
 description = "Desktop interface for Azure AI Foundry Local"
 authors = ["angelobelchior"]
 edition = "2024"
@@ -37,6 +37,7 @@ cpal = "0.18.2"
 tauri-plugin-dialog = "2.8.4"
 pdf-extract = "0.7"
 libc = "0.2.191"
+foundry-local-sdk = "=2.3.1"
 
 [profile.release]
 codegen-units = 1

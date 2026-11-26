@@ -2,17 +2,17 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::attachments::AttachmentStore;
 use super::chat::GenerationRegistry;
-use super::cli::CliBackend;
 use super::db::Database;
 use super::error::{FoundryError, FoundryResult};
 use super::jobs::JobRegistry;
 use super::project_selection::ProjectSelectionRegistry;
+use super::sdk_backend::SdkBackend;
 use super::server::{ServerManager, ServerPreferences};
 use super::speech::Recorder;
 use super::vectorize::VectorizeRegistry;
 
 pub struct AppState {
-    cli: RwLock<Option<CliBackend>>,
+    backend: RwLock<Option<SdkBackend>>,
     database: RwLock<Option<Arc<Database>>>,
     attachments: RwLock<Option<Arc<AttachmentStore>>>,
     pub server: ServerManager,
@@ -26,7 +26,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            cli: RwLock::new(None),
+            backend: RwLock::new(None),
             database: RwLock::new(None),
             attachments: RwLock::new(None),
             server: ServerManager::new(ServerPreferences::default()),
@@ -75,39 +75,30 @@ impl AppState {
             })
     }
 
-    pub fn backend(&self) -> FoundryResult<CliBackend> {
-        if let Some(cli) = read(&self.cli).clone() {
-            return Ok(cli);
+    pub fn backend(&self) -> FoundryResult<SdkBackend> {
+        if let Some(backend) = read(&self.backend).clone() {
+            return Ok(backend);
         }
 
-        let cli = CliBackend::detect()?;
-        *write(&self.cli) = Some(cli.clone());
+        let backend = SdkBackend::detect()?;
+        *write(&self.backend) = Some(backend.clone());
 
-        Ok(cli)
+        Ok(backend)
     }
 
-    pub fn refresh_backend(&self) -> FoundryResult<CliBackend> {
-        self.server.invalidate_prepared_context();
-        let cli = CliBackend::detect()?;
-        *write(&self.cli) = Some(cli.clone());
-        self.server.invalidate_prepared_context();
+    pub fn refresh_backend(&self) -> FoundryResult<SdkBackend> {
+        let backend = SdkBackend::detect()?;
+        *write(&self.backend) = Some(backend.clone());
 
-        Ok(cli)
+        Ok(backend)
     }
 
-    pub fn cached_backend(&self) -> Option<CliBackend> {
-        read(&self.cli).clone()
+    pub fn cached_backend(&self) -> Option<SdkBackend> {
+        read(&self.backend).clone()
     }
 
     pub fn shutdown(&self) {
-        if !self.server.should_stop_on_exit() {
-            return;
-        }
-
-        if let Some(cli) = self.cached_backend() {
-            cli.stop_blocking();
-            self.server.mark_stopped();
-        }
+        self.server.mark_stopped();
     }
 }
 

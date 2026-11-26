@@ -253,7 +253,7 @@ export function ChatWorkspace({
     inputModalities !== null &&
     inputModalities.origin !== "notDeclared" &&
     !(inputModalities.value ?? []).includes("image");
-  const attachEnabled = !attachBlocked && active === null && !sending && !agentCompatible && !agent.busy;
+  const attachEnabled = !attachBlocked && active === null && !sending && !agent.busy;
   const attachHint = attachBlocked
     ? t("chat.attachDisabled")
     : notDeclared
@@ -1153,8 +1153,7 @@ export function ChatWorkspace({
     try {
       await ensureConversationModelLoaded(selected);
 
-      if (agentCompatible) {
-        if (tokens.length > 0) return;
+      if (agentCompatible && tokens.length === 0) {
         const receipt = await agent.start(content);
         setDrafts((current) => ({ ...current, [conversationId]: "" }));
         setConversations((current) => mergeVisibleConversation(current, receipt.conversation));
@@ -1692,9 +1691,6 @@ export function ChatWorkspace({
 
   const composerControls = selected ? (
     <>
-      <span className="inline-flex h-7 items-center rounded-[7px] bg-subtle px-2 text-[10px] font-semibold uppercase tracking-[0.04em] text-tertiary">
-        {t("params.origin.conversation")}
-      </span>
       <ModelPicker
         label={t("chat.model")}
         models={allChatModels}

@@ -16,6 +16,7 @@ import {
 } from "../../lib/foundry";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { errorLabel, formatBytes, formatSize } from "./format";
+import { ToolBadge } from "./ModelBadges";
 
 type CachePanelProps = {
   open: boolean;
@@ -240,6 +241,7 @@ export function CachePanel({ open, onClose, onChanged }: CachePanelProps) {
                         {model.id}
                       </p>
                     </div>
+                    <ToolBadge supports={model.supportsToolCalling} />
                     <span className="shrink-0 text-[10.5px] tabular-nums text-tertiary">
                       {model.fileSizeMb === null ? null : formatSize(model.fileSizeMb, i18n.language)}
                     </span>

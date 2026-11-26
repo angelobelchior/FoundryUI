@@ -144,6 +144,7 @@ pub struct LoadedModel {
     pub model_type: Option<String>,
     pub device: Option<String>,
     pub file_size_mb: Option<f64>,
+    pub supports_tool_calling: bool,
     pub loaded_since: i64,
 }
 

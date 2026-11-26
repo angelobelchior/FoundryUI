@@ -8,6 +8,9 @@ const TOKENS: [&str; 7] = [
     "<|call|>",
 ];
 
+const CHANNEL_OPEN_TOKENS: [&str; 3] = ["<|channel>", "<|turn>", "<|think|>"];
+const CHANNEL_CLOSE_TOKENS: [&str; 2] = ["<channel|>", "<turn|>"];
+
 const ROLES: [&str; 4] = ["assistant", "user", "system", "tool"];
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -34,13 +37,22 @@ enum Mode {
 enum Detection {
     Pending,
     Harmony,
+    Channel,
     Plain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelMode {
+    Text,
+    Name,
+    Body { reasoning: bool },
 }
 
 pub struct HarmonyStream {
     mode: Mode,
     pending: String,
     detection: Detection,
+    channel_mode: ChannelMode,
 }
 
 impl Default for HarmonyStream {
@@ -55,6 +67,7 @@ impl HarmonyStream {
             mode: Mode::Header,
             pending: String::new(),
             detection: Detection::Pending,
+            channel_mode: ChannelMode::Text,
         }
     }
 
@@ -80,6 +93,7 @@ impl HarmonyStream {
                     };
                 }
                 Detection::Harmony => self.detection = Detection::Harmony,
+                Detection::Channel => self.detection = Detection::Channel,
             }
         }
 
@@ -97,11 +111,19 @@ impl HarmonyStream {
                     reasoning: String::new(),
                 }
             }
-            Detection::Harmony => self.drain(true),
+            Detection::Harmony => self.drain_harmony(true),
+            Detection::Channel => self.drain_channel(true),
         }
     }
 
     fn drain(&mut self, at_end: bool) -> HarmonyDelta {
+        match self.detection {
+            Detection::Channel => self.drain_channel(at_end),
+            _ => self.drain_harmony(at_end),
+        }
+    }
+
+    fn drain_harmony(&mut self, at_end: bool) -> HarmonyDelta {
         let mut delta = HarmonyDelta::default();
 
         loop {
@@ -191,11 +213,113 @@ impl HarmonyStream {
 
         delta
     }
+
+    fn drain_channel(&mut self, at_end: bool) -> HarmonyDelta {
+        let mut delta = HarmonyDelta::default();
+
+        loop {
+            match self.channel_mode {
+                ChannelMode::Text => {
+                    let Some((index, token)) = next_channel_token(&self.pending) else {
+                        let keep = if at_end {
+                            0
+                        } else {
+                            trailing_channel_prefix_len(&self.pending)
+                        };
+                        let emit = self.pending.len() - keep;
+                        let text: String = self.pending.drain(..emit).collect();
+
+                        push(&mut delta, Channel::Content, &text);
+                        break;
+                    };
+
+                    let text: String = self.pending.drain(..index).collect();
+
+                    push(&mut delta, Channel::Content, &text);
+                    self.pending.drain(..token.len());
+
+                    if token == "<|channel>" {
+                        self.channel_mode = ChannelMode::Name;
+                    }
+                }
+                ChannelMode::Name => {
+                    let leading = self
+                        .pending
+                        .find(|c: char| !c.is_whitespace())
+                        .unwrap_or(self.pending.len());
+
+                    self.pending.drain(..leading);
+
+                    if self.pending.is_empty() {
+                        if at_end {
+                            self.channel_mode = ChannelMode::Text;
+                        }
+
+                        break;
+                    }
+
+                    let Some(end) = self.pending.find(|c: char| c.is_whitespace() || c == '<') else {
+                        if at_end {
+                            let name = std::mem::take(&mut self.pending);
+
+                            push(&mut delta, Channel::Content, &name);
+                            self.channel_mode = ChannelMode::Text;
+                        }
+
+                        break;
+                    };
+
+                    let name = self.pending[..end].to_ascii_lowercase();
+
+                    self.pending.drain(..end);
+
+                    let whitespace = self
+                        .pending
+                        .find(|c: char| !c.is_whitespace())
+                        .unwrap_or(self.pending.len());
+
+                    self.pending.drain(..whitespace);
+
+                    let reasoning = matches!(name.as_str(), "thought" | "analysis");
+
+                    self.channel_mode = ChannelMode::Body { reasoning };
+                }
+                ChannelMode::Body { reasoning } => {
+                    let Some((index, token)) = next_channel_token(&self.pending) else {
+                        let keep = if at_end {
+                            0
+                        } else {
+                            trailing_channel_prefix_len(&self.pending)
+                        };
+                        let emit = self.pending.len() - keep;
+                        let text: String = self.pending.drain(..emit).collect();
+
+                        push(&mut delta, reasoning_channel(reasoning), &text);
+                        break;
+                    };
+
+                    let text: String = self.pending.drain(..index).collect();
+
+                    push(&mut delta, reasoning_channel(reasoning), &text);
+                    self.pending.drain(..token.len());
+
+                    if token == "<channel|>" {
+                        self.channel_mode = ChannelMode::Text;
+                    }
+                }
+            }
+        }
+
+        delta
+    }
 }
 
 fn detect(value: &str) -> Detection {
     let Some(index) = value.find("<|") else {
-        if trailing_prefix_len(value) > 0 || is_role_prefix(value.trim()) {
+        if trailing_prefix_len(value) > 0
+            || trailing_channel_prefix_len(value) > 0
+            || is_role_prefix(value.trim())
+        {
             return Detection::Pending;
         }
 
@@ -214,7 +338,15 @@ fn detect(value: &str) -> Detection {
         return Detection::Harmony;
     }
 
+    if CHANNEL_OPEN_TOKENS.iter().any(|token| suffix.starts_with(token)) {
+        return Detection::Channel;
+    }
+
     if TOKENS.iter().any(|token| token.starts_with(suffix)) {
+        return Detection::Pending;
+    }
+
+    if CHANNEL_OPEN_TOKENS.iter().any(|token| token.starts_with(suffix)) {
         return Detection::Pending;
     }
 
@@ -231,6 +363,14 @@ fn is_role_prefix(value: &str) -> bool {
 
 fn channel_for(name: &str) -> Channel {
     if name == "analysis" {
+        Channel::Reasoning
+    } else {
+        Channel::Content
+    }
+}
+
+fn reasoning_channel(reasoning: bool) -> Channel {
+    if reasoning {
         Channel::Reasoning
     } else {
         Channel::Content
@@ -255,6 +395,14 @@ fn next_token(value: &str) -> Option<(usize, &'static str)> {
         .min_by_key(|(index, _)| *index)
 }
 
+fn next_channel_token(value: &str) -> Option<(usize, &'static str)> {
+    CHANNEL_OPEN_TOKENS
+        .iter()
+        .chain(CHANNEL_CLOSE_TOKENS.iter())
+        .filter_map(|token| value.find(token).map(|index| (index, *token)))
+        .min_by_key(|(index, _)| *index)
+}
+
 fn trailing_prefix_len(value: &str) -> usize {
     let Some(index) = value.rfind('<') else {
         return 0;
@@ -262,6 +410,20 @@ fn trailing_prefix_len(value: &str) -> usize {
     let suffix = &value[index..];
 
     if TOKENS.iter().any(|token| token.starts_with(suffix)) {
+        suffix.len()
+    } else {
+        0
+    }
+}
+
+fn trailing_channel_prefix_len(value: &str) -> usize {
+    let Some(index) = value.rfind('<') else {
+        return 0;
+    };
+    let suffix = &value[index..];
+    let tokens = CHANNEL_OPEN_TOKENS.iter().chain(CHANNEL_CLOSE_TOKENS.iter());
+
+    if tokens.into_iter().any(|token| token.starts_with(suffix)) {
         suffix.len()
     } else {
         0
@@ -392,5 +554,45 @@ mod tests {
         let delta = collect(&["assistant<|channel|>final<|message|>hello"]);
 
         assert_eq!(delta.content, "hello");
+    }
+
+    #[test]
+    fn routes_gemma_empty_thought_block_to_content() {
+        let delta = collect(&["<|channel>thought\n<channel|>Olá! Como posso ajudar?"]);
+
+        assert!(delta.reasoning.is_empty());
+        assert_eq!(delta.content, "Olá! Como posso ajudar?");
+    }
+
+    #[test]
+    fn routes_gemma_thought_to_reasoning_and_answer_to_content() {
+        let delta = collect(&["<|channel>thought\npensando na resposta<channel|>Aqui está a resposta."]);
+
+        assert_eq!(delta.reasoning, "pensando na resposta");
+        assert_eq!(delta.content, "Aqui está a resposta.");
+    }
+
+    #[test]
+    fn handles_gemma_tokens_split_across_chunks() {
+        let delta = collect(&[
+            "<|chan",
+            "nel>tho",
+            "ught\n",
+            "<chan",
+            "nel|>",
+            "resposta",
+            " final",
+        ]);
+
+        assert!(delta.reasoning.is_empty());
+        assert_eq!(delta.content, "resposta final");
+    }
+
+    #[test]
+    fn discards_gemma_turn_markers() {
+        let delta = collect(&["<|channel>thought\n<channel|>ok<turn|>"]);
+
+        assert!(delta.reasoning.is_empty());
+        assert_eq!(delta.content, "ok");
     }
 }

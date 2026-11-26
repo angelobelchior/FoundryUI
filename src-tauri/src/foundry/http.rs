@@ -15,7 +15,10 @@ pub fn local_inference_error(error: super::local_inference::LocalInferenceError)
     FoundryError::CommandFailed {
         command: "local_inference".to_string(),
         message: error.to_string(),
-        hint: Some("Context was not sent to an unverified destination. Restart the local Foundry runtime and retry; tool network permissions do not authorize remote inference.".to_string()),
+        hint: Some(
+            "The local inference request failed. Ensure the model is loaded and the local server is running."
+                .to_string(),
+        ),
     }
 }
 

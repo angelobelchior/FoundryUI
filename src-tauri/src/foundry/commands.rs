@@ -14,7 +14,7 @@ use super::attachments::StagedAttachment;
 use super::backend::FoundryBackend;
 use super::catalog::{self, CatalogModel, ModelKind, Origin};
 use super::chat::{ChatParams, GenerationContext, GenerationStart, SendReceipt, StreamEvent};
-use super::cli::CliBackend;
+use super::sdk_backend::SdkBackend;
 use super::db::{
     ChatMessage, Conversation, CorpusDocument, CorpusDocumentInput, Database, EmbeddingCorpus,
     MessagePage, MessageRole, MessageStatus, ModelChange, SearchHit, TokenUsage, Transcription,
@@ -155,8 +155,9 @@ pub async fn config_set(
 #[tauri::command]
 pub async fn diagnostics_report(state: State<'_, AppState>) -> FoundryResult<String> {
     let cli = state.backend()?;
+    let status = cli.status().await?;
 
-    cli.run_text(&["report"]).await
+    Ok(serde_json::to_string_pretty(&status).unwrap_or_else(|_| "{}".to_string()))
 }
 
 #[tauri::command]
@@ -498,7 +499,7 @@ pub fn chat_export(
 
 struct PreparedGeneration {
     database: Arc<Database>,
-    cli: CliBackend,
+    cli: SdkBackend,
     conversation: Conversation,
     resolved: ResolvedParams,
     chat_params: ChatParams,
@@ -650,7 +651,7 @@ fn export_directory(app: &AppHandle) -> FoundryResult<PathBuf> {
     Ok(directory)
 }
 
-async fn ensure_image_input(cli: &CliBackend, alias: &str) -> FoundryResult<()> {
+async fn ensure_image_input(cli: &SdkBackend, alias: &str) -> FoundryResult<()> {
     let overlay = catalog::overlay()?;
     let model = cli.model_info(alias).await?;
     let merged = catalog::merge(model, &HashSet::new(), overlay);
@@ -1843,7 +1844,7 @@ async fn embedding_search_core(
     ))
 }
 
-async fn resolve_answer_model(state: &AppState, cli: &CliBackend) -> FoundryResult<AnswerModel> {
+async fn resolve_answer_model(state: &AppState, cli: &SdkBackend) -> FoundryResult<AnswerModel> {
     let overlay = catalog::overlay()?;
     let loaded = loaded_aliases(state, cli).await;
     let models = catalog::merge_all(cli.list_models().await?, &loaded, overlay);
@@ -2100,7 +2101,7 @@ fn embedding_document_inputs(
         .collect()
 }
 
-async fn loaded_speech_model(cli: &CliBackend, alias: &str) -> FoundryResult<Option<ModelSummary>> {
+async fn loaded_speech_model(cli: &SdkBackend, alias: &str) -> FoundryResult<Option<ModelSummary>> {
     Ok(cli
         .list_loaded_models()
         .await?
@@ -2109,7 +2110,7 @@ async fn loaded_speech_model(cli: &CliBackend, alias: &str) -> FoundryResult<Opt
 }
 
 async fn loaded_embedding_model(
-    cli: &CliBackend,
+    cli: &SdkBackend,
     alias: &str,
 ) -> FoundryResult<Option<ModelSummary>> {
     Ok(cli
@@ -2446,15 +2447,13 @@ pub async fn model_register(
     state: State<'_, AppState>,
     input: RegisterModelInput,
 ) -> FoundryResult<Vec<ModelSummary>> {
-    let args = register_args(&input)?;
     let cli = state.backend()?;
-    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    cli.run_text(&borrowed)
+    cli.register_model(&input)
         .await
         .map_err(|error| classify_model_error(error, &input.model_id))?;
 
-    local_models_for(&cli).await
+    cli.list_local_models().await
 }
 
 #[tauri::command]
@@ -2474,14 +2473,14 @@ pub async fn model_unregister(
 
     let cli = state.backend()?;
 
-    cli.run_text(&["model", "unregister", target, "--yes"])
+    cli.unregister_model(target)
         .await
         .map_err(|error| classify_model_error(error, target))?;
 
-    local_models_for(&cli).await
+    cli.list_local_models().await
 }
 
-async fn loaded_summary(state: &AppState, cli: &CliBackend) -> FoundryResult<LoadedSummary> {
+async fn loaded_summary(state: &AppState, cli: &SdkBackend) -> FoundryResult<LoadedSummary> {
     let runtime = runtime_state(state, cli).await;
 
     Ok(loaded_summary_from_models(
@@ -2513,6 +2512,7 @@ fn loaded_summary_from_models(
             model_type: model.model_type,
             device: model.device,
             file_size_mb: model.file_size_mb,
+            supports_tool_calling: model.supports_tool_calling,
         })
         .collect();
     let total_bytes = loaded
@@ -2530,7 +2530,7 @@ fn loaded_summary_from_models(
     }
 }
 
-async fn read_cache_info(cli: &CliBackend) -> FoundryResult<CacheInfo> {
+async fn read_cache_info(cli: &SdkBackend) -> FoundryResult<CacheInfo> {
     let location = cli.cache_location().await?;
     let models = cli.cache_list().await?;
     let total_bytes = models
@@ -2546,66 +2546,8 @@ async fn read_cache_info(cli: &CliBackend) -> FoundryResult<CacheInfo> {
     })
 }
 
-async fn local_models_for(cli: &CliBackend) -> FoundryResult<Vec<ModelSummary>> {
-    let models = cli.list_models().await?;
-
-    Ok(models
-        .into_iter()
-        .filter(|model| model.source.as_deref() != Some("Public"))
-        .collect())
-}
-
-fn register_args(input: &RegisterModelInput) -> FoundryResult<Vec<String>> {
-    let path = input.path.trim();
-    let model_id = input.model_id.trim();
-    let task = input.task.trim();
-
-    if path.is_empty() || model_id.is_empty() || task.is_empty() {
-        return Err(FoundryError::CommandFailed {
-            command: "foundry model register".to_string(),
-            message: "folder, model ID and task are required".to_string(),
-            hint: None,
-        });
-    }
-
-    let mut args = vec![
-        "model".to_string(),
-        "register".to_string(),
-        path.to_string(),
-        model_id.to_string(),
-        "--task".to_string(),
-        task.to_string(),
-    ];
-
-    push_optional(&mut args, "--display-name", input.display_name.as_deref());
-    push_optional(&mut args, "--device", input.device.as_deref());
-    push_optional(
-        &mut args,
-        "--execution-provider",
-        input.execution_provider.as_deref(),
-    );
-
-    if let Some(length) = input.context_length.filter(|length| *length > 0) {
-        args.push("--context-length".to_string());
-        args.push(length.to_string());
-    }
-
-    if input.supports_tool_calling == Some(true) {
-        args.push("--supports-tool-calling".to_string());
-    }
-
-    if input.supports_reasoning == Some(true) {
-        args.push("--supports-reasoning".to_string());
-    }
-
-    Ok(args)
-}
-
-fn push_optional(args: &mut Vec<String>, flag: &str, value: Option<&str>) {
-    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
-        args.push(flag.to_string());
-        args.push(value.to_string());
-    }
+async fn local_models_for(cli: &SdkBackend) -> FoundryResult<Vec<ModelSummary>> {
+    cli.list_local_models().await
 }
 
 fn classify_model_error(error: FoundryError, alias: &str) -> FoundryError {
@@ -2655,7 +2597,7 @@ fn memory_snapshot() -> (u64, u64) {
     (system.available_memory(), system.total_memory())
 }
 
-async fn loaded_aliases(state: &AppState, cli: &CliBackend) -> HashSet<String> {
+async fn loaded_aliases(state: &AppState, cli: &SdkBackend) -> HashSet<String> {
     loaded_aliases_from_models(&runtime_state(state, cli).await.loaded_models)
 }
 
@@ -2672,7 +2614,7 @@ struct RuntimeState {
     loaded_models: Vec<ModelSummary>,
 }
 
-async fn runtime_state(state: &AppState, cli: &CliBackend) -> RuntimeState {
+async fn runtime_state(state: &AppState, cli: &SdkBackend) -> RuntimeState {
     let snapshot = state
         .server
         .observe_cached(cli, SERVER_OBSERVE_CACHE_WINDOW)
@@ -2695,65 +2637,6 @@ async fn runtime_state(state: &AppState, cli: &CliBackend) -> RuntimeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn input() -> RegisterModelInput {
-        RegisterModelInput {
-            path: " /models/demo ".to_string(),
-            model_id: "demo:1".to_string(),
-            task: "chat-completion".to_string(),
-            ..RegisterModelInput::default()
-        }
-    }
-
-    #[test]
-    fn builds_register_arguments_without_empty_options() {
-        let args = register_args(&input()).expect("arguments are valid");
-
-        assert_eq!(
-            args,
-            vec![
-                "model",
-                "register",
-                "/models/demo",
-                "demo:1",
-                "--task",
-                "chat-completion"
-            ]
-        );
-    }
-
-    #[test]
-    fn adds_optional_registration_metadata() {
-        let mut input = input();
-
-        input.display_name = Some(" Demo ".to_string());
-        input.device = Some("gpu".to_string());
-        input.context_length = Some(8192);
-        input.supports_tool_calling = Some(true);
-
-        let args = register_args(&input).expect("arguments are valid");
-
-        assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--display-name", "Demo"])
-        );
-        assert!(args.windows(2).any(|pair| pair == ["--device", "gpu"]));
-        assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--context-length", "8192"])
-        );
-        assert!(args.contains(&"--supports-tool-calling".to_string()));
-        assert!(!args.contains(&"--supports-reasoning".to_string()));
-    }
-
-    #[test]
-    fn requires_the_folder_model_and_task() {
-        let mut input = input();
-
-        input.model_id = "  ".to_string();
-
-        assert!(register_args(&input).is_err());
-    }
 
     #[test]
     fn maps_memory_failures_to_the_typed_error() {

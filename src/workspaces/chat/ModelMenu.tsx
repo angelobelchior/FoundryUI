@@ -76,14 +76,6 @@ export function ModelMenu({
           "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-line disabled:hover:text-secondary",
         )}
       >
-        <span
-          className={cx(
-            "shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em]",
-            emphasized ? "text-accent" : "text-tertiary",
-          )}
-        >
-          {label}
-        </span>
         <span className="min-w-0 truncate font-medium">{selected?.label ?? value}</span>
         <ChevronDownIcon
           size={12}

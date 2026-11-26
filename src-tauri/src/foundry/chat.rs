@@ -636,24 +636,43 @@ async fn stream_completion<S: StreamSink>(
         );
     }
     let messages = plan.messages;
+    let uses_images = messages.iter().any(has_image_content);
 
-    let mut payload = json!({
-        "model": context.model_id,
-        "messages": messages,
-        "stream": true,
-        "stream_options": { "include_usage": true },
-    });
+    let (route, payload) = if uses_images {
+        let input = messages.into_iter().map(to_responses_message).collect::<Vec<_>>();
+        let mut payload = json!({
+            "model": context.model_id,
+            "input": input,
+            "stream": true,
+        });
 
-    if let Some(params) = &context.params {
-        params.apply(&mut payload);
-        apply_native_behavior_controls(&mut payload, params, context.supports_reasoning);
-    }
+        if let Some(params) = &context.params {
+            apply_responses_params(&mut payload, params);
+        }
+
+        ("/v1/responses", payload)
+    } else {
+        let mut payload = json!({
+            "model": context.model_id,
+            "messages": messages,
+            "stream": true,
+            "stream_options": { "include_usage": true },
+        });
+
+        if let Some(params) = &context.params {
+            params.apply(&mut payload);
+            apply_native_behavior_controls(&mut payload, params, context.supports_reasoning);
+        }
+
+        ("/v1/chat/completions", payload)
+    };
 
     let request = context.endpoint.post_json_stream(
-        "/v1/chat/completions",
+        route,
         &payload,
         context.timeouts.first_token,
     );
+    let responses_mode = uses_images;
 
     let response = match with_cancel(&mut cancellation, request).await {
         None => {
@@ -694,6 +713,7 @@ async fn stream_completion<S: StreamSink>(
     let mut stream = response.bytes_stream();
     let mut pending = String::new();
     let mut first_frame = true;
+    let mut current_event = String::new();
 
     loop {
         let next = with_cancel(&mut cancellation, async {
@@ -751,7 +771,7 @@ async fn stream_completion<S: StreamSink>(
 
             first_frame = false;
 
-            match parse_frame(&line) {
+            match parse_stream_line(&line, responses_mode, &mut current_event) {
                 Ok(Some(Frame::Delta {
                     content,
                     reasoning,
@@ -780,7 +800,7 @@ async fn stream_completion<S: StreamSink>(
     }
 
     if !pending.trim().is_empty() {
-        match parse_frame(&pending) {
+        match parse_stream_line(&pending, responses_mode, &mut current_event) {
             Ok(Some(Frame::Delta {
                 content,
                 reasoning,
@@ -1108,6 +1128,140 @@ fn parse_frame(line: &str) -> FoundryResult<Option<Frame>> {
     }))
 }
 
+fn parse_stream_line(
+    line: &str,
+    responses: bool,
+    current_event: &mut String,
+) -> FoundryResult<Option<Frame>> {
+    if responses {
+        parse_responses_line(line, current_event)
+    } else {
+        parse_frame(line)
+    }
+}
+
+fn parse_responses_line(line: &str, current_event: &mut String) -> FoundryResult<Option<Frame>> {
+    let trimmed = line.trim();
+
+    if trimmed.is_empty() || trimmed.starts_with(':') {
+        return Ok(None);
+    }
+
+    if let Some(event) = trimmed.strip_prefix("event:") {
+        *current_event = event.trim().to_string();
+        return Ok(None);
+    }
+
+    let Some(data) = trimmed.strip_prefix("data:") else {
+        return Ok(None);
+    };
+    let data = data.trim();
+
+    if data == "[DONE]" {
+        return Ok(Some(Frame::Done));
+    }
+
+    let chunk: Value = serde_json::from_str(data).map_err(|error| FoundryError::BadResponse {
+        detail: format!("invalid responses stream frame: {error}"),
+    })?;
+
+    match current_event.as_str() {
+        "response.output_text.delta" => {
+            let content = chunk
+                .get("delta")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Ok(Some(Frame::Delta {
+                content,
+                reasoning: String::new(),
+                usage: None,
+            }))
+        }
+        "response.completed" => {
+            let usage = chunk
+                .get("response")
+                .and_then(|response| response.get("usage"))
+                .map(|usage| TokenUsage {
+                    prompt_tokens: usage.get("input_tokens").and_then(Value::as_i64).unwrap_or(0),
+                    completion_tokens: usage
+                        .get("output_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0),
+                    total_tokens: usage.get("total_tokens").and_then(Value::as_i64).unwrap_or(0),
+                });
+            Ok(usage.map(Frame::Usage))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn has_image_content(message: &Value) -> bool {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|parts| {
+            parts
+                .iter()
+                .any(|part| part.get("type").and_then(Value::as_str) == Some("image_url"))
+        })
+}
+
+fn to_responses_message(message: Value) -> Value {
+    let Some(parts) = message.get("content").and_then(Value::as_array) else {
+        return message;
+    };
+    let converted: Vec<Value> = parts
+        .iter()
+        .map(|part| match part.get("type").and_then(Value::as_str) {
+            Some("text") => json!({
+                "type": "input_text",
+                "text": part.get("text").cloned().unwrap_or(Value::Null),
+            }),
+            Some("image_url") => {
+                let url = part
+                    .get("image_url")
+                    .and_then(|value| value.get("url"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                json!({ "type": "input_image", "image_url": url })
+            }
+            _ => part.clone(),
+        })
+        .collect();
+    let mut object = message.as_object().cloned().unwrap_or_default();
+    object.insert("content".to_string(), Value::Array(converted));
+    Value::Object(object)
+}
+
+fn apply_responses_params(payload: &mut Value, params: &ChatParams) {
+    let Some(fields) = payload.as_object_mut() else {
+        return;
+    };
+
+    if let Some(value) = params.temperature {
+        fields.insert("temperature".to_string(), json!(value));
+    }
+    if let Some(value) = params.top_p {
+        fields.insert("top_p".to_string(), json!(value));
+    }
+    if let Some(value) = params.max_tokens {
+        fields.insert("max_output_tokens".to_string(), json!(value));
+    }
+    if let Some(value) = params.presence_penalty {
+        fields.insert("presence_penalty".to_string(), json!(value));
+    }
+    if let Some(value) = params.frequency_penalty {
+        fields.insert("frequency_penalty".to_string(), json!(value));
+    }
+    if let Some(value) = params.seed {
+        fields.insert("seed".to_string(), json!(value));
+    }
+    if let Some(value) = &params.stop {
+        fields.insert("stop".to_string(), json!(value));
+    }
+}
+
 fn is_missing_model(detail: &str) -> bool {
     let lower = detail.to_lowercase();
 
@@ -1144,10 +1298,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_responses_stream_frames() {
+        let mut event = String::new();
+
+        assert_eq!(
+            parse_stream_line("event: response.output_text.delta", true, &mut event)
+                .expect("event"),
+            None
+        );
+        assert_eq!(event, "response.output_text.delta");
+
+        let frame = parse_stream_line(
+            r#"data: {"delta":"Red","type":"response.output_text.delta"}"#,
+            true,
+            &mut event,
+        )
+        .expect("delta");
+        match frame {
+            Some(Frame::Delta {
+                content,
+                reasoning,
+                usage,
+            }) => {
+                assert_eq!(content, "Red");
+                assert!(reasoning.is_empty());
+                assert!(usage.is_none());
+            }
+            other => panic!("expected a delta frame, got {other:?}"),
+        }
+
+        event.clear();
+        assert_eq!(
+            parse_stream_line("event: response.completed", true, &mut event).expect("event"),
+            None
+        );
+        let frame = parse_stream_line(
+            r#"data: {"response":{"usage":{"input_tokens":279,"output_tokens":1,"total_tokens":280}},"type":"response.completed"}"#,
+            true,
+            &mut event,
+        )
+        .expect("usage");
+        match frame {
+            Some(Frame::Usage(usage)) => {
+                assert_eq!(usage.prompt_tokens, 279);
+                assert_eq!(usage.completion_tokens, 1);
+                assert_eq!(usage.total_tokens, 280);
+            }
+            other => panic!("expected a usage frame, got {other:?}"),
+        }
+
+        assert_eq!(
+            parse_stream_line("data: [DONE]", true, &mut event).expect("done"),
+            Some(Frame::Done)
+        );
+    }
+
+    #[test]
     fn parses_content_reasoning_usage_and_done_frames() {
         let content =
-            parse_frame(r#"data: {"choices":[{"delta":{"content":"hi"}}]}"#).expect("frame");
-        assert_eq!(
+            parse_frame(r#"data: {"choices":[{"delta":{"content":"hi"}}]}"#).expect("frame");        assert_eq!(
             content,
             Some(Frame::Delta {
                 content: "hi".to_string(),
@@ -1467,36 +1676,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_change_blocks_chat_history_before_the_request() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener.set_nonblocking(true).expect("nonblocking");
-        let revision = Arc::new(AtomicU64::new(1));
-        let endpoint = verified_fixture_endpoint(&format!(
-            "http://{}",
-            listener.local_addr().expect("address")
-        ))
-        .bind_session(revision.clone(), 1);
-        let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (context, collector) = test_context(database.clone(), endpoint, false);
-        let message_id = context.assistant_message.id;
-        revision.store(2, Ordering::SeqCst);
-
-        run_generation(context, collector.clone()).await;
-
-        assert_eq!(
-            database.message(message_id).expect("message").status,
-            MessageStatus::Error
-        );
-        assert!(collector.events.lock().unwrap().iter().any(|event| matches!(event, StreamEvent::Error { error, .. } if error.code() == "CommandFailed")));
-        assert_eq!(
-            listener.accept().expect_err("no request").kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    #[tokio::test]
     async fn an_unreachable_server_reports_a_clear_error() {
         let database = Arc::new(Database::open_in_memory().expect("database"));
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -1524,165 +1703,126 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires an installed foundry CLI, a running daemon and the loaded qwen3-0.6b model"]
-    async fn real_completion_streams_and_persists() {
-        use super::super::backend::FoundryBackend;
-        use super::super::cli::CliBackend;
+    async fn an_image_attachment_is_serialized_into_the_request_payload() {
+        use std::io::{Read, Write};
 
-        let cli = CliBackend::detect().expect("foundry CLI");
-        let status = cli.server_status().await.expect("server status");
-        let endpoint = verified_live_endpoint(&cli, &status);
-        let loaded = cli.list_loaded_models().await.expect("loaded models");
-        let model = loaded
-            .iter()
-            .find(|model| model.alias == "qwen3-0.6b")
-            .expect("qwen3-0.6b is loaded");
         let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), endpoint, false);
-        let message_id = context.assistant_message.id;
+        let conversation = database
+            .create_conversation("gemma-4-e2b-it")
+            .expect("conversation");
+        let user_message = database
+            .append_message(
+                conversation.id,
+                MessageRole::User,
+                "que animal é?",
+                "",
+                Some("gemma-4-e2b-it"),
+                MessageStatus::Complete,
+            )
+            .expect("user message");
+        let store = super::super::attachments::AttachmentStore::new();
+        let staged = store
+            .store("data:image/png;base64,iVBORw0KGgo=")
+            .expect("image");
+        let staged = store.take(&[staged.token]).expect("taken").remove(0);
+        database
+            .add_attachment(user_message.id, "image", &staged)
+            .expect("attachment");
+        let assistant_message = database
+            .append_message(
+                conversation.id,
+                MessageRole::Assistant,
+                "",
+                "",
+                Some("gemma-4-e2b-it"),
+                MessageStatus::Streaming,
+            )
+            .expect("assistant message");
 
-        context.model_id = model.id.clone();
-        run_generation(context, collector.clone()).await;
-
-        let events = collector.events.lock().unwrap();
-        let deltas = events
-            .iter()
-            .filter(|event| matches!(event, StreamEvent::Delta { .. }))
-            .count();
-        let done = events.iter().find_map(|event| match event {
-            StreamEvent::Done {
-                message, cancelled, ..
-            } => Some((message, *cancelled)),
-            _ => None,
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let captured = Arc::new(std::sync::Mutex::new(String::new()));
+        let captured_for_thread = Arc::clone(&captured);
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("connection");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 8192];
+            let header_end = loop {
+                let n = socket.read(&mut buffer).expect("read");
+                if n == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..n]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("Content-Length: ")
+                        .or_else(|| line.strip_prefix("content-length: "))
+                })
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let n = socket.read(&mut buffer).expect("read");
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..n]);
+            }
+            *captured_for_thread.lock().unwrap() = String::from_utf8_lossy(&request).to_string();
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: [DONE]\n\n";
+            let _ = socket.write_all(response.as_bytes());
         });
 
-        assert!(deltas > 1, "expected token deltas");
-        let (done, cancelled) = done.expect("done event");
-        assert!(!cancelled);
-        assert_eq!(done.status, MessageStatus::Complete);
-        assert!(!done.content.is_empty() || !done.reasoning.is_empty());
+        let endpoint = verified_fixture_endpoint(&format!("http://{address}"));
+        let registry = Arc::new(GenerationRegistry::default());
+        let GenerationStart {
+            request_id,
+            cancellation,
+            guard,
+        } = registry.begin(conversation.id).expect("generation");
+        let context = GenerationContext {
+            request_id,
+            database,
+            endpoint,
+            model_id: "gemma-4-e2b-it-generic-gpu:1".to_string(),
+            conversation,
+            user_message,
+            assistant_message,
+            params: None,
+            supports_reasoning: false,
+            timeouts: StreamTimeouts::from_seconds(20, 20),
+            cancellation,
+            _guard: guard,
+        };
+        let collector = Collector::default();
 
-        let stored = database.message(message_id).expect("stored message");
-        assert_eq!(stored.status, MessageStatus::Complete);
-        assert_eq!(stored.content, done.content);
-        assert_eq!(stored.reasoning, done.reasoning);
-        assert!(stored.usage.is_some(), "usage is reported");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires an installed foundry CLI, a running daemon and the loaded gpt-oss-20b model"]
-    async fn gpt_oss_harmony_output_is_split_into_reasoning_and_content() {
-        use super::super::backend::FoundryBackend;
-        use super::super::cli::CliBackend;
-
-        let cli = CliBackend::detect().expect("foundry CLI");
-        let status = cli.server_status().await.expect("server status");
-        let endpoint = verified_live_endpoint(&cli, &status);
-        let loaded = cli.list_loaded_models().await.expect("loaded models");
-        let model = loaded
-            .iter()
-            .find(|model| model.alias == "gpt-oss-20b")
-            .expect("gpt-oss-20b is loaded");
-        let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), endpoint, false);
-        let message_id = context.assistant_message.id;
-
-        context.model_id = model.id.clone();
         run_generation(context, collector.clone()).await;
+        server.join().expect("server thread");
 
-        let events = collector.events.lock().unwrap();
-        let done = events.iter().find_map(|event| match event {
-            StreamEvent::Done { message, .. } => Some(message),
-            _ => None,
-        });
-        let done = done.expect("done event");
-
+        let request = captured.lock().unwrap();
         assert!(
-            !done.content.contains("<|"),
-            "content keeps harmony tokens: {}",
-            done.content
+            request.contains("input_image"),
+            "the request payload must carry the input_image content part"
         );
         assert!(
-            !done.reasoning.contains("<|"),
-            "reasoning keeps harmony tokens: {}",
-            done.reasoning
+            request.contains("data:image/png;base64,iVBORw0KGgo="),
+            "the data URL survives into the payload"
         );
-        assert!(!done.content.trim().is_empty(), "final answer is present");
-
-        let stored = database.message(message_id).expect("stored message");
-        assert_eq!(stored.content, done.content);
-        assert_eq!(stored.reasoning, done.reasoning);
-    }
-
-    #[tokio::test]
-    #[ignore = "requires an installed foundry CLI, a running daemon and the loaded qwen3-0.6b model"]
-    async fn cancelling_keeps_the_partial_reply() {
-        use super::super::backend::FoundryBackend;
-        use super::super::cli::CliBackend;
-
-        let cli = CliBackend::detect().expect("foundry CLI");
-        let status = cli.server_status().await.expect("server status");
-        let endpoint = verified_live_endpoint(&cli, &status);
-        let loaded = cli.list_loaded_models().await.expect("loaded models");
-        let model = loaded
-            .iter()
-            .find(|model| model.alias == "qwen3-0.6b")
-            .expect("qwen3-0.6b is loaded");
-        let database = Arc::new(Database::open_in_memory().expect("database"));
-        let (mut context, collector) = test_context(database.clone(), endpoint, true);
-        let message_id = context.assistant_message.id;
-
-        context.model_id = model.id.clone();
-        run_generation(context, collector.clone()).await;
-
-        let events = collector.events.lock().unwrap();
-        let done = events.iter().find_map(|event| match event {
-            StreamEvent::Done {
-                message, cancelled, ..
-            } => Some((message, *cancelled)),
-            _ => None,
-        });
-
-        let (done, cancelled) = done.expect("done event");
-        assert!(cancelled);
-        assert_eq!(done.status, MessageStatus::Cancelled);
-        assert!(!done.content.is_empty() || !done.reasoning.is_empty());
-
-        let stored = database.message(message_id).expect("stored message");
-        assert_eq!(stored.status, MessageStatus::Cancelled);
-        assert_eq!(stored.content, done.content);
     }
 
     fn verified_fixture_endpoint(
         endpoint: &str,
     ) -> super::super::local_inference::VerifiedLocalEndpoint {
-        use super::super::local_inference::{
-            RuntimeBinding, RuntimeObservation, VerifiedLocalEndpoint,
-        };
-        let binding = RuntimeBinding::default();
-        binding.replace(Some(
-            RuntimeObservation::new(
-                endpoint,
-                std::process::id(),
-                std::env::current_exe().expect("test executable"),
-                1,
-            )
-            .expect("fixture observation"),
-        ));
-        VerifiedLocalEndpoint::verify(&binding).expect("native fixture proof")
-    }
-
-    fn verified_live_endpoint(
-        cli: &super::super::cli::CliBackend,
-        status: &super::super::json::ServerStatus,
-    ) -> super::super::local_inference::VerifiedLocalEndpoint {
-        super::super::local_inference::verify_foundry_endpoint(
-            std::path::Path::new(&cli.info().path),
-            status.pid.expect("runtime PID"),
-            status.endpoint().expect("running server"),
+        super::super::local_inference::VerifiedLocalEndpoint::new(
+            endpoint,
             std::time::Duration::from_secs(5),
         )
-        .expect("verified Foundry runtime")
+        .expect("fixture endpoint")
     }
 
     fn sample_message(content: &str, attachments: Vec<Attachment>) -> ChatMessage {
@@ -1745,122 +1885,4 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[ignore = "requires foundry CLI, a running daemon and the loaded qwen3.5-0.8b model"]
-    async fn a_png_attachment_reaches_qwen35_as_a_data_url() {
-        use base64::Engine;
-        use base64::engine::general_purpose::STANDARD;
-
-        use super::super::attachments::StagedAttachment;
-        use super::super::attachments::StagedFile;
-        use super::super::backend::FoundryBackend;
-        use super::super::cli::CliBackend;
-
-        let cli = CliBackend::detect().expect("foundry CLI");
-        let status = cli.server_status().await.expect("server status");
-        let endpoint = verified_live_endpoint(&cli, &status);
-        let loaded = cli.list_loaded_models().await.expect("loaded models");
-        let model = loaded
-            .iter()
-            .find(|model| model.alias == "qwen3.5-0.8b")
-            .expect("qwen3.5-0.8b is loaded");
-        let database = Arc::new(Database::open_in_memory().expect("database"));
-        let conversation = database
-            .create_conversation("qwen3.5-0.8b")
-            .expect("conversation");
-        let user_message = database
-            .append_message(
-                conversation.id,
-                MessageRole::User,
-                "Describe the color of this image in one sentence.",
-                "",
-                Some("qwen3.5-0.8b"),
-                MessageStatus::Complete,
-            )
-            .expect("user message");
-        let pixel = STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==")
-            .expect("png");
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("pixel.png");
-
-        std::fs::write(&path, &pixel).expect("write");
-
-        database
-            .add_attachment(
-                user_message.id,
-                "image",
-                &StagedFile {
-                    meta: StagedAttachment {
-                        token: "test".to_string(),
-                        mime: "image/png".to_string(),
-                        bytes: pixel.len() as u64,
-                        width: Some(1),
-                        height: Some(1),
-                    },
-                    data: pixel,
-                },
-            )
-            .expect("attachment");
-
-        let assistant_message = database
-            .append_message(
-                conversation.id,
-                MessageRole::Assistant,
-                "",
-                "",
-                Some("qwen3.5-0.8b"),
-                MessageStatus::Streaming,
-            )
-            .expect("assistant message");
-        let registry = Arc::new(GenerationRegistry::default());
-        let GenerationStart {
-            request_id,
-            cancellation,
-            guard,
-        } = registry.begin(conversation.id).expect("generation starts");
-        let collector = Collector::default();
-        let user_message = database
-            .message(user_message.id)
-            .expect("stored user message");
-
-        assert_eq!(user_message.attachments.len(), 1);
-        assert!(
-            message_content(&database, &user_message)
-                .expect("content")
-                .is_array()
-        );
-
-        let context = GenerationContext {
-            request_id,
-            database,
-            endpoint,
-            model_id: model.id.clone(),
-            conversation,
-            user_message,
-            assistant_message,
-            params: Some(ChatParams {
-                max_tokens: Some(64),
-                ..ChatParams::default()
-            }),
-            supports_reasoning: false,
-            timeouts: StreamTimeouts::from_seconds(60, 60),
-            cancellation,
-            _guard: guard,
-        };
-
-        run_generation(context, collector.clone()).await;
-
-        let events = collector.events.lock().unwrap();
-        let done = events.iter().find_map(|event| match event {
-            StreamEvent::Done { message, .. } => Some(message),
-            _ => None,
-        });
-        let done = done.expect("done event");
-
-        assert!(
-            !done.content.trim().is_empty(),
-            "the model replied to the image"
-        );
-    }
 }

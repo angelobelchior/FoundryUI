@@ -97,6 +97,22 @@ fn plain_text_never_becomes_a_call() {
 }
 
 #[test]
+fn gemma_thought_channel_is_split_out_of_the_content() {
+    let wire = format!(
+        "{}{}",
+        frame(
+            json!({"choices": [{"index": 0, "delta": {"content": "<|channel>thought\n<channel|>Olá! Como posso ajudar?"}}]})
+        ),
+        frame(json!({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}))
+    ) + "data: [DONE]\n\n";
+    let turn = collected(&wire).unwrap();
+    assert!(turn.calls.is_empty());
+    assert_eq!(turn.content, "Olá! Como posso ajudar?");
+    assert!(turn.reasoning.is_empty());
+    assert_eq!(turn.finish, FinishReason::Stop);
+}
+
+#[test]
 fn truncated_and_filtered_finishes_are_reported_without_their_calls() {
     let length = format!(
         "{}{}",
@@ -313,9 +329,7 @@ async fn the_endpoint_provider_streams_structured_calls() {
 
     use crate::foundry::agent_runtime::EndpointTurnProvider;
     use crate::foundry::http::StreamTimeouts;
-    use crate::foundry::local_inference::{
-        RuntimeBinding, RuntimeObservation, VerifiedLocalEndpoint,
-    };
+    use crate::foundry::local_inference::VerifiedLocalEndpoint;
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -337,17 +351,7 @@ async fn the_endpoint_provider_streams_structured_calls() {
         stream.write_all(response.as_bytes()).unwrap();
     });
 
-    let binding = RuntimeBinding::default();
-    binding.replace(Some(
-        RuntimeObservation::new(
-            &endpoint,
-            std::process::id(),
-            std::env::current_exe().unwrap(),
-            1,
-        )
-        .unwrap(),
-    ));
-    let verified = VerifiedLocalEndpoint::verify(&binding).unwrap();
+    let verified = VerifiedLocalEndpoint::new(&endpoint, std::time::Duration::from_secs(5)).unwrap();
     let mut provider = EndpointTurnProvider {
         endpoint: verified,
         model_id: "fixture-model".into(),

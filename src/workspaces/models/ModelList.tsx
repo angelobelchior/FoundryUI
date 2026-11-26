@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { ToolsIcon } from "../../components/Icon";
 import { cx } from "../../lib/cx";
 import type { CatalogModel, FoundryCommandError, ModelJob } from "../../lib/foundry";
-import { KindBadge, StateDot } from "./ModelBadges";
+import { kindIcon, StateDot } from "./ModelBadges";
 import {
   deviceLabel,
   errorLabel,
@@ -66,6 +67,7 @@ export function ModelList({
           <ul className="flex flex-col gap-0.5">
             {group.models.map((model) => {
               const selected = model.alias === selectedAlias;
+              const KindIcon = kindIcon[model.kind];
               const meta = [
                 model.fileSizeMb === null ? null : formatSize(model.fileSizeMb, i18n.language),
                 deviceLabel(model.device),
@@ -96,7 +98,10 @@ export function ModelList({
                       <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-primary">
                         {model.alias}
                       </span>
-                      <KindBadge kind={model.kind} />
+                      <span className="flex shrink-0 items-center gap-1 text-tertiary">
+                        <KindIcon size={13} />
+                        {model.supportsToolCalling ? <ToolsIcon size={13} /> : null}
+                      </span>
                     </span>
                     <span className="flex w-full min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[10.5px] tabular-nums text-secondary">{meta}</span>

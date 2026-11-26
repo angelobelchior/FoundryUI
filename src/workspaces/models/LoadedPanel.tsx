@@ -6,6 +6,7 @@ import { Modal } from "../../components/Modal";
 import { Spinner } from "../../components/Spinner";
 import type { FoundryCommandError, LoadedSummary } from "../../lib/foundry";
 import { formatBytes, formatElapsed, formatSize } from "./format";
+import { ToolBadge } from "./ModelBadges";
 
 type LoadedPanelProps = {
   open: boolean;
@@ -132,6 +133,7 @@ export function LoadedPanel({
                         .join(" · ")}
                     </p>
                   </div>
+                  <ToolBadge supports={model.supportsToolCalling} />
                   <button
                     type="button"
                     onClick={() => onUnload(model.alias)}

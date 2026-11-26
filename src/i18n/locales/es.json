@@ -98,7 +98,7 @@
     "Timeout": "La operación agotó el tiempo de espera.",
     "Cancelled": "La operación se canceló.",
     "BadResponse": "El servidor devolvió una respuesta inesperada.",
-    "CommandFailed": "El comando de Foundry Local falló.",
+    "CommandFailed": "La operación de Foundry Local falló.",
     "Storage": "No se pudo acceder a la base de datos local.",
     "UnsupportedImage": "Este modelo no acepta imágenes.",
     "AttachmentRejected": "No se pudo adjuntar la imagen.",
@@ -174,7 +174,7 @@
     "copyMessage": "Copiar mensaje",
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar.",
-    "attach": "Adjuntar imagen",
+    "attach": "Adjuntar",
     "attachDisabled": "Este modelo no acepta imágenes.",
     "attachNotDeclared": "Este modelo no declara sus modalidades de entrada. Las imágenes se envían igualmente.",
     "removeAttachment": "Quitar imagen",
@@ -283,6 +283,10 @@
     "curatedUnknownSource": "el overlay de catálogo de FoundryUI",
     "yes": "Sí",
     "no": "No",
+    "tools": {
+      "supported": "Herramientas",
+      "notSupported": "Sin herramientas"
+    },
     "tokens": "{{value}} tokens",
     "kinds": {
       "all": "Todos",

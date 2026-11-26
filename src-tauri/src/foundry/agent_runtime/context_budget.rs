@@ -304,16 +304,7 @@ fn shorten_message(message: &Value, budget_bytes: usize) -> Option<Value> {
             object.insert("content".into(), Value::String(truncated));
             Some(Value::Object(object))
         }
-        Value::Array(_) => {
-            object.insert(
-                "content".into(),
-                Value::String(
-                    "[Earlier message shortened to fit the context budget; non-text parts were omitted.]"
-                        .into(),
-                ),
-            );
-            Some(Value::Object(object))
-        }
+        Value::Array(_) => None,
         _ => None,
     }
 }
@@ -487,6 +478,37 @@ mod tests {
         );
         assert!(plan.manifest.truncated);
         assert!(serialized(&plan.messages) <= plan.manifest.allowance_bytes);
+    }
+
+    #[test]
+    fn a_multimodal_tail_keeps_its_image_when_it_cannot_fit() {
+        let messages = vec![
+            json!({"role": "system", "content": "policy"}),
+            json!({"role": "user", "content": [
+                {"type": "text", "text": "describe this image"},
+                {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{}", "A".repeat(40_000))}},
+            ]}),
+        ];
+
+        let plan = plan(PlanRequest {
+            messages,
+            capacity_tokens: Some(1024),
+            max_input_bytes: None,
+            requested_output_tokens: Some(256),
+        });
+
+        let latest = plan.messages.last().unwrap();
+        let content = latest.get("content").unwrap();
+        assert!(content.is_array(), "the multimodal tail keeps its parts");
+        assert!(
+            content
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|part| part.get("type") == Some(&json!("image_url"))),
+            "the image_url part survives the budget"
+        );
+        assert!(plan.manifest.truncated);
     }
 
     #[test]

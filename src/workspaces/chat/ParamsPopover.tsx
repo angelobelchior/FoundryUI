@@ -79,7 +79,6 @@ export function ParamsPopover({
         )}
       >
         <SlidersIcon size={14} />
-        <span className="truncate font-medium">{t("params.title")}</span>
         {hasVisibleOverride ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
       </button>
       {open ? (

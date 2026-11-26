@@ -16,6 +16,7 @@ test-results
 # Rust
 src-tauri/target
 src-tauri/gen
+spikes/agent_wave7/spike/target/
 
 # Editor directories and files
 .vscode/*

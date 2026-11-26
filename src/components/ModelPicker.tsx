@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertIcon, CheckIcon, ChevronDownIcon, DownloadIcon, LoadIcon } from "./Icon";
+import { AlertIcon, CheckIcon, ChevronDownIcon, DownloadIcon, LoadIcon, ToolsIcon } from "./Icon";
 import { Spinner } from "./Spinner";
 import { cx } from "../lib/cx";
 import { type CatalogModel, type ModelJob } from "../lib/foundry";
+import { kindIcon } from "../workspaces/models/ModelBadges";
+import { formatSize } from "../workspaces/models/format";
 
 type ModelPickerProps = {
   label: string;
@@ -146,9 +148,6 @@ export function ModelPicker({
           "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-line disabled:hover:text-secondary",
         )}
       >
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em] text-tertiary">
-          {label}
-        </span>
         {busyText !== null ? (
           <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-medium text-primary">
             <Spinner size={11} className="shrink-0" />
@@ -195,7 +194,7 @@ export function ModelPicker({
                     aria-checked={isSelected}
                     onClick={() => useModel(model.alias)}
                     className={cx(
-                      "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] transition-colors",
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition-colors",
                       isSelected
                         ? "bg-subtle text-primary"
                         : "text-secondary hover:bg-hover hover:text-primary",
@@ -204,12 +203,7 @@ export function ModelPicker({
                     <span className="flex w-4 shrink-0 justify-center">
                       {isSelected ? <CheckIcon size={13} /> : null}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{model.alias}</span>
-                      {model.displayName ? (
-                        <span className="block truncate text-[10px] text-tertiary">{model.displayName}</span>
-                      ) : null}
-                    </span>
+                    <ModelIdentity model={model} />
                   </button>
                 );
               })}
@@ -228,17 +222,12 @@ export function ModelPicker({
                     role="menuitem"
                     onClick={() => loadModelAlias(model.alias)}
                     disabled={loadingAlias !== null}
-                    className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-secondary transition-colors hover:bg-hover hover:text-primary disabled:opacity-60"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-secondary transition-colors hover:bg-hover hover:text-primary disabled:opacity-60"
                   >
                     <span className="flex w-4 shrink-0 justify-center">
                       {loading ? <Spinner size={11} /> : <LoadIcon size={12} />}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{model.alias}</span>
-                      {model.displayName ? (
-                        <span className="block truncate text-[10px] text-tertiary">{model.displayName}</span>
-                      ) : null}
-                    </span>
+                    <ModelIdentity model={model} />
                     <span className="shrink-0 text-[10px] uppercase tracking-[0.04em] text-tertiary">
                       {t("models.picker.load")}
                     </span>
@@ -261,17 +250,12 @@ export function ModelPicker({
                     role="menuitem"
                     onClick={() => downloadModelAlias(model.alias)}
                     disabled={running}
-                    className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-secondary transition-colors hover:bg-hover hover:text-primary disabled:opacity-60"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-secondary transition-colors hover:bg-hover hover:text-primary disabled:opacity-60"
                   >
                     <span className="flex w-4 shrink-0 justify-center">
                       {running ? <Spinner size={11} /> : <DownloadIcon size={12} />}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{model.alias}</span>
-                      {model.displayName ? (
-                        <span className="block truncate text-[10px] text-tertiary">{model.displayName}</span>
-                      ) : null}
-                    </span>
+                    <ModelIdentity model={model} />
                     <span className="shrink-0 text-[10px] uppercase tracking-[0.04em] text-tertiary">
                       {running
                         ? t("models.picker.downloading")
@@ -318,5 +302,32 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
       </p>
       {children}
     </div>
+  );
+}
+
+function ModelIdentity({ model }: { model: CatalogModel }) {
+  const { i18n } = useTranslation();
+  const KindIcon = kindIcon[model.kind];
+
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 truncate">{model.alias}</span>
+        <span className="flex shrink-0 items-center gap-1 text-tertiary">
+          <KindIcon size={12} />
+          {model.supportsToolCalling ? <ToolsIcon size={12} /> : null}
+        </span>
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        {model.displayName ? (
+          <span className="min-w-0 truncate text-[10px] text-tertiary">{model.displayName}</span>
+        ) : null}
+        {model.fileSizeMb !== null ? (
+          <span className="shrink-0 text-[10px] tabular-nums text-tertiary">
+            {formatSize(model.fileSizeMb, i18n.language)}
+          </span>
+        ) : null}
+      </span>
+    </span>
   );
 }

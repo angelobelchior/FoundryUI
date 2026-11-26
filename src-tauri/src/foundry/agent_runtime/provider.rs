@@ -17,10 +17,28 @@ pub struct EndpointTurnProvider {
 #[async_trait]
 impl TurnProvider for EndpointTurnProvider {
     async fn next_turn(&mut self, request: ModelRequest) -> Result<ModelTurn, String> {
+        let had_tools = !request.tools.is_empty();
+        let result = self.send_turn(&request).await;
+
+        if had_tools
+            && matches!(&result, Err(error) if error.to_lowercase().contains("tool"))
+        {
+            let mut plain = request;
+            plain.tools = Vec::new();
+
+            return self.send_turn(&plain).await;
+        }
+
+        result
+    }
+}
+
+impl EndpointTurnProvider {
+    async fn send_turn(&self, request: &ModelRequest) -> Result<ModelTurn, String> {
         let mut payload = json!({
             "model": self.model_id,
-            "messages": request.messages,
-            "tools": request.tools,
+            "messages": request.messages.clone(),
+            "tools": request.tools.clone(),
             "stream": true,
             "stream_options": { "include_usage": true },
         });

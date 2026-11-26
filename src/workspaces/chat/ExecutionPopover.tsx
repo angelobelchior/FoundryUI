@@ -69,7 +69,6 @@ export function ExecutionPopover({ agent, compatible, hasAttachments }: Executio
         )}
       >
         <ToolsIcon size={14} />
-        <span className="truncate font-medium">{t("execution.tools")}</span>
         {busy || stopping ? <Spinner size={11} /> : pending ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
       </button>
       {open ? (

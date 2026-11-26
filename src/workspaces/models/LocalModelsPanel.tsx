@@ -14,6 +14,7 @@ import {
 } from "../../lib/foundry";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { errorLabel, formatSize } from "./format";
+import { ToolBadge } from "./ModelBadges";
 
 type LocalModelsPanelProps = {
   open: boolean;
@@ -171,6 +172,7 @@ export function LocalModelsPanel({ open, onClose, onChanged }: LocalModelsPanelP
                     <p className="truncate text-[12px] font-medium text-primary">{model.alias}</p>
                     <p className="mt-0.5 truncate font-mono text-[10px] text-tertiary">{model.id}</p>
                   </div>
+                  <ToolBadge supports={model.supportsToolCalling} />
                   <span className="shrink-0 text-[10.5px] tabular-nums text-tertiary">
                     {model.fileSizeMb === null
                       ? null

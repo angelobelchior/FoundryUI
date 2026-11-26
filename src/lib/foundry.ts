@@ -139,6 +139,7 @@ export type LoadedModel = {
   modelType: string | null;
   device: string | null;
   fileSizeMb: number | null;
+  supportsToolCalling: boolean;
   loadedSince: number;
 };
 

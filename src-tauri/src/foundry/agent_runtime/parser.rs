@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::foundry::harmony::HarmonyStream;
+
 pub const MAX_WIRE_BYTES: usize = 1_048_576;
 pub const MAX_CALLS: usize = 16;
 pub const MAX_ARGUMENT_BYTES: usize = 65_536;
@@ -33,7 +35,7 @@ pub struct ParsedTurn {
     pub finish: FinishReason,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolStreamError {
     #[error("the tool stream exceeded its byte limit")]
     StreamLimit,
@@ -51,8 +53,8 @@ pub enum ToolStreamError {
     DataAfterFinish,
     #[error("the tool stream carried an invalid JSON frame")]
     InvalidJson,
-    #[error("the provider reported an error frame")]
-    ProviderError,
+    #[error("the provider reported an error frame: {0}")]
+    ProviderError(String),
     #[error("the tool stream carried an invalid envelope")]
     InvalidEnvelope,
     #[error("the tool stream carried an unsupported choice")]
@@ -96,6 +98,7 @@ pub struct ToolCallStream {
     calls: BTreeMap<usize, PartialCall>,
     finish: Option<FinishReason>,
     done: bool,
+    harmony: HarmonyStream,
 }
 
 impl Default for ToolCallStream {
@@ -114,6 +117,7 @@ impl ToolCallStream {
             calls: BTreeMap::new(),
             finish: None,
             done: false,
+            harmony: HarmonyStream::new(),
         }
     }
 
@@ -133,13 +137,16 @@ impl ToolCallStream {
         Ok(())
     }
 
-    pub fn finish(self) -> Result<ParsedTurn, ToolStreamError> {
+    pub fn finish(mut self) -> Result<ParsedTurn, ToolStreamError> {
         if !self.pending.is_empty() {
             return Err(ToolStreamError::UnfinishedEvent);
         }
         if !self.done {
             return Err(ToolStreamError::MissingDone);
         }
+        let tail = self.harmony.finish();
+        self.content.push_str(&tail.content);
+        self.reasoning.push_str(&tail.reasoning);
         let finish = self.finish.ok_or(ToolStreamError::MissingFinish)?;
         let calls = self.assemble_calls()?;
         match finish {
@@ -228,8 +235,14 @@ impl ToolCallStream {
         let object = payload
             .as_object()
             .ok_or(ToolStreamError::InvalidEnvelope)?;
-        if object.contains_key("error") {
-            return Err(ToolStreamError::ProviderError);
+        if let Some(error) = object.get("error") {
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            return Err(ToolStreamError::ProviderError(message));
         }
         let choices = object
             .get("choices")
@@ -258,7 +271,10 @@ impl ToolCallStream {
             if let Some(content) = delta.get("content") {
                 if content.is_null() {
                 } else if let Some(content) = content.as_str() {
-                    self.content.push_str(content);
+                    let parsed = self.harmony.push(content);
+
+                    self.content.push_str(&parsed.content);
+                    self.reasoning.push_str(&parsed.reasoning);
                 } else {
                     return Err(ToolStreamError::InvalidEnvelope);
                 }

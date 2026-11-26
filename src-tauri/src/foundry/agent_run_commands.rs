@@ -321,17 +321,33 @@ fn bridge_final_answer(
             _ => None,
         });
     let (content, reasoning) = answer.unwrap_or_else(|| (String::new(), String::new()));
-    let status = match outcome {
-        CycleOutcome::Completed { .. } => MessageStatus::Complete,
+    let (status, error) = match outcome {
+        CycleOutcome::Completed { .. } => (MessageStatus::Complete, None),
         CycleOutcome::AlreadyFinished {
             run_state: RunState::Cancelled,
-        } => MessageStatus::Cancelled,
+        } => (MessageStatus::Cancelled, None),
         CycleOutcome::AwaitingAuthorization { .. } | CycleOutcome::AlreadyFinished { .. } => {
-            MessageStatus::Interrupted
+            (MessageStatus::Interrupted, None)
         }
-        _ => MessageStatus::Error,
+        CycleOutcome::Failed { code, detail } => (
+            MessageStatus::Error,
+            Some(FoundryError::CommandFailed {
+                command: "agent run".to_string(),
+                message: format!("{code}: {detail}"),
+                hint: None,
+            }),
+        ),
+        CycleOutcome::Stopped { detail, .. } => (
+            MessageStatus::Error,
+            Some(FoundryError::CommandFailed {
+                command: "agent run".to_string(),
+                message: detail.clone(),
+                hint: None,
+            }),
+        ),
+        CycleOutcome::ChatOnly { .. } => (MessageStatus::Error, None),
     };
-    database.finish_message(message_id, status, &content, &reasoning, None, None)?;
+    database.finish_message(message_id, status, &content, &reasoning, None, error.as_ref())?;
     Ok(())
 }
 

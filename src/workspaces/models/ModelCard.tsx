@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal } from "../../components/Modal";
 import type { CatalogModel, Declared } from "../../lib/foundry";
-import { KindBadge, OriginMark } from "./ModelBadges";
+import { kindIcon, OriginMark } from "./ModelBadges";
 import { ModelActions, type ModelActionsProps } from "./ModelActions";
 import {
   CapabilitiesList,
@@ -38,11 +38,12 @@ export function ModelCard({
   onRetry,
 }: ModelCardProps) {
   const { t, i18n } = useTranslation();
+  const KindIcon = kindIcon[model.kind];
 
   return (
     <Modal open={open} title={model.alias} onClose={onClose} size="lg">
       <div className="flex items-center gap-2">
-        <KindBadge kind={model.kind} />
+        <KindIcon size={13} className="text-tertiary" />
         <p className="truncate font-mono text-[10.5px] text-tertiary">{model.id}</p>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-secondary">
