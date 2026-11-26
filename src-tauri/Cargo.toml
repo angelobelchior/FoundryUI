@@ -1,6 +1,6 @@
 [package]
 name = "foundryui"
-version = "0.1.1-alpha"
+version = "0.1.1"
 description = "Desktop interface for Azure AI Foundry Local"
 authors = ["angelobelchior"]
 edition = "2024"
